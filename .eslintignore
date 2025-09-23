@@ -1,0 +1,5 @@
+node_modules
+.next
+dist
+**/page - Copy.tsx
+**/page - Copy (2).tsx
