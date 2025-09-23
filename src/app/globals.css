@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* smooth fonts & page background */
+:root { color-scheme: light; }
+html, body { height: 100%; }
+body {
+  /* v4 is fine with @apply in global CSS */
+  @apply bg-white text-neutral-900 antialiased;
+}
+
+/* headings rhythm */
+.prose h1, h1 { @apply text-3xl md:text-5xl font-bold tracking-tight; }
+.prose h2, h2 { @apply text-2xl md:text-3xl font-semibold mt-8; }
+.prose p      { @apply leading-7; }
+
+/* buttons */
+.btn { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-medium transition; }
+.btn-primary { @apply bg-blue-600 text-white hover:bg-blue-700 shadow-sm; }
+.btn-ghost { @apply text-blue-700 hover:bg-blue-50; }
+
+/* gradient hero backdrop */
+.hero-gradient {
+  background:
+    radial-gradient(60% 60% at 10% 10%, rgba(49,111,255,0.10) 0%, rgba(49,111,255,0) 60%),
+    radial-gradient(60% 60% at 90% 20%, rgba(88,147,255,0.10) 0%, rgba(88,147,255,0) 60%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
