@@ -10,7 +10,6 @@ type TravelerUpsert = {
 };
 
 function toUTCDate(d: string) {
-  // Parse YYYY-MM-DD as UTC midnight to avoid TZ drift
   return new Date(d + "T00:00:00Z");
 }
 function ageOn(dateISO: string, dobISO: string) {
@@ -29,8 +28,8 @@ async function getSailingWindow(supabase: any) {
     .eq("key", "sailing_window")
     .single();
   if (error || !data?.value) throw new Error("Missing sailing_window setting");
-  const start = data.value.start as string; // "2026-04-05"
-  const end = data.value.end as string;     // "2026-04-12"
+  const start = data.value.start as string;
+  const end = data.value.end as string;
   return { start, end };
 }
 
@@ -40,65 +39,106 @@ export async function GET(req: NextRequest) {
 
   const supabase = supabaseServer();
 
-  // Get lead to know group size + minor ages + lead names
+  // Lead for size + ages + lead names
   const { data: lead, error: leadErr } = await supabase
     .from("leads")
     .select("booking_ref, adults, minors, minor_ages, first_name, last_name")
     .eq("booking_ref", ref)
     .single();
-
   if (leadErr || !lead) return NextResponse.json({ ok: false, error: "LEAD_NOT_FOUND" }, { status: 404 });
 
   const target = (lead.adults ?? 0) + (lead.minors ?? 0);
 
-  // Ensure traveler placeholders exist and match target size (adults first)
+  // Existing travelers
   const { data: existing, error: exErr } = await supabase
     .from("travelers")
-    .select("id, idx, is_adult, minor_age, first_name, last_name, dob, nationality_code")
+    .select("id, idx, is_adult, minor_age, first_name, last_name, dob, nationality_code, promo_code_id")
     .eq("booking_ref", ref)
     .order("idx", { ascending: true });
-
   if (exErr) return NextResponse.json({ ok: false, error: exErr.message }, { status: 500 });
 
-  // Build missing rows
-  const rows: any[] = [];
+  // Create missing placeholders (adults first, then minors with preset age)
+  const toInsert: any[] = [];
   for (let i = 0; i < target; i++) {
     const found = existing?.find((t: any) => t.idx === i);
     if (!found) {
       const isAdult = i < (lead.adults ?? 0);
       const minorAge = !isAdult ? (lead.minor_ages?.[i - (lead.adults ?? 0)] ?? null) : null;
-      rows.push({
-        booking_ref: ref, idx: i, is_adult: isAdult, minor_age: minorAge,
-        first_name: null, last_name: null, dob: null, nationality_code: "MX"
+      toInsert.push({
+        booking_ref: ref,
+        idx: i,
+        is_adult: isAdult,
+        minor_age: minorAge,
+        first_name: null,
+        last_name: null,
+        dob: null,
+        nationality_code: "MX",
+        promo_code_id: null,
       });
     }
   }
-  if (rows.length > 0) {
-    const { error: insErr } = await supabase.from("travelers").insert(rows);
+  if (toInsert.length > 0) {
+    const { error: insErr } = await supabase.from("travelers").insert(toInsert);
     if (insErr) return NextResponse.json({ ok: false, error: insErr.message }, { status: 500 });
   }
 
   // Prefill traveler 0 with lead names if empty
   const t0 = existing?.find((t: any) => t.idx === 0);
   if ((lead.first_name || lead.last_name) && (!t0 || (!t0.first_name && !t0.last_name))) {
-    await supabase.from("travelers")
+    await supabase
+      .from("travelers")
       .update({
-        first_name: (lead.first_name ?? null),
-        last_name:  (lead.last_name ?? null)
+        first_name: lead.first_name ?? null,
+        last_name: lead.last_name ?? null,
       })
       .eq("booking_ref", ref)
       .eq("idx", 0);
   }
 
-  // Return fresh set
+  // Reload with promo_code_id
   const { data: out, error: outErr } = await supabase
     .from("travelers")
-    .select("idx,is_adult,minor_age,first_name,last_name,dob,nationality_code")
+    .select("id, idx, is_adult, minor_age, first_name, last_name, dob, nationality_code, promo_code_id")
     .eq("booking_ref", ref)
     .order("idx", { ascending: true });
-
   if (outErr) return NextResponse.json({ ok: false, error: outErr.message }, { status: 500 });
-  return NextResponse.json({ ok: true, travelers: out }, { status: 200 });
+
+  // Tolerate bigint or uuid ids for promo_codes
+  const rawIds = out.map((t: any) => t.promo_code_id).filter(Boolean);
+  const idsNum = (rawIds as any[]).filter(v => typeof v === "number") as number[];
+  const idsStr = (rawIds as any[]).filter(v => typeof v !== "number").map(String) as string[];
+
+  let promoMap: Record<string, { code: string; type: "staff"|"artist"|"early_bird" }> = {};
+
+  if (idsNum.length) {
+    const { data: promosN, error: pErrN } = await supabase
+      .from("promo_codes")
+      .select("id, code, type")
+      .in("id", idsNum);
+    if (pErrN) return NextResponse.json({ ok: false, error: pErrN.message }, { status: 500 });
+    for (const p of promosN ?? []) promoMap[String((p as any).id)] = { code: (p as any).code, type: (p as any).type };
+  }
+  if (idsStr.length) {
+    const { data: promosS, error: pErrS } = await supabase
+      .from("promo_codes")
+      .select("id, code, type")
+      .in("id", idsStr);
+    if (pErrS) return NextResponse.json({ ok: false, error: pErrS.message }, { status: 500 });
+    for (const p of promosS ?? []) promoMap[String((p as any).id)] = { code: (p as any).code, type: (p as any).type };
+  }
+
+  const withPromo = out.map((t: any) => ({
+    idx: t.idx,
+    is_adult: t.is_adult,
+    minor_age: t.minor_age,
+    first_name: t.first_name,
+    last_name: t.last_name,
+    dob: t.dob,
+    nationality_code: t.nationality_code,
+    promo: t.promo_code_id ? (promoMap[String(t.promo_code_id)] ?? null) : null,
+  }));
+
+  return NextResponse.json({ ok: true, travelers: withPromo }, { status: 200 });
 }
 
 export async function POST(req: NextRequest) {
@@ -113,13 +153,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "INVALID_PAYLOAD" }, { status: 400 });
   }
 
-  // Load existing rows to know which idx is adult/minor
+  // Existing rows for is_adult/minor decision
   const { data: rows, error: loadErr } = await supabase
     .from("travelers")
     .select("idx,is_adult,minor_age")
     .eq("booking_ref", ref)
     .order("idx", { ascending: true });
-
   if (loadErr) return NextResponse.json({ ok: false, error: loadErr.message }, { status: 500 });
 
   const errors: Record<number, string> = {};
@@ -137,7 +176,6 @@ export async function POST(req: NextRequest) {
     if (!/^[A-Z]{2}$/.test(nat)) { errors[t.idx] = "Invalid nationality."; continue; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) { errors[t.idx] = "Invalid DOB."; continue; }
 
-    // Age validation: Adults 18+ by start; Minors 0–17 by end
     const adultAge = ageOn(start, dob);
     const minorAge = ageOn(end, dob);
     if (row.is_adult) {
@@ -150,7 +188,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, errors }, { status: 400 });
   }
 
-  // Apply updates
   for (const t of body.travelers) {
     const first = t.firstName.trim().toUpperCase();
     const last  = t.lastName.trim().toUpperCase();
@@ -166,8 +203,6 @@ export async function POST(req: NextRequest) {
     if (upErr) return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
   }
 
-  // Mark lead progress
   await supabase.from("leads").update({ status: "travelers_added" }).eq("booking_ref", ref);
-
   return NextResponse.json({ ok: true }, { status: 200 });
 }
