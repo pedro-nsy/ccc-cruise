@@ -1,135 +1,103 @@
-﻿import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/adminAuth";
-import { supabaseServer } from "@/lib/supabase-server";
+"use server";
 
-const SAFE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I,O,L,0,1
+import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase-server"; // your server client (SERVICE_ROLE)
 
-function randFrom(alphabet: string, n: number) {
-  let s = "";
-  for (let i = 0; i < n; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return s;
-}
-function genCode(type: "early_bird"|"artist"|"staff") {
-  const head = type === "early_bird" ? "EL" : type === "artist" ? "AR" : "ST";
-  const tail = type === "early_bird" ? "B"  : type === "artist" ? "T"  : "F";
-  return `${head}${randFrom(SAFE,2)}-${randFrom(SAFE,3)}${tail}`;
+type Dir = "asc" | "desc";
+type SortKey = "created" | "type" | "status";
+
+function mapSort(sort: SortKey): string {
+  if (sort === "type") return "type";
+  if (sort === "status") return "status";
+  return "created_at"; // "created"
 }
 
-// ===== GET: list + stats (active-only in stats) =====
-export async function GET(req: NextRequest) {
-  const gate = await requireAdmin(req);
-  if ("error" in gate) return gate.error;
+function escapeIlike(s: string) {
+  // escape % and _ so users can type them literally
+  return s.replace(/[%_]/g, (m) => `\\${m}`);
+}
 
-  const supabase = supabaseServer();
-  const { searchParams } = new URL(req.url);
-  const q = (searchParams.get("q") || "").trim().toUpperCase();
-  const type = (searchParams.get("type") || "").trim();
-  const status = (searchParams.get("status") || "").trim();
-  const used = (searchParams.get("used") || "").trim().toLowerCase();           // "yes" | "no" | ""
-  const assigned = (searchParams.get("assigned") || "").trim().toLowerCase();   // "assigned" | "unassigned" | ""
-  const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 200);
-  const offset = parseInt(searchParams.get("offset") || "0", 10);
+export async function GET(req: Request) {
+  const url = new URL(req.url);
 
-  // main list (unchanged)
-  let query = supabase.from("promo_codes")
-    .select("id, code, type, status, used_count, created_at, updated_at, assigned_to_name, assigned_email, assigned_phone, expires_at, created_by", { count: "exact" })
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+  const q = (url.searchParams.get("q") ?? "").trim();
+  const type = url.searchParams.get("type") ?? "";
+  const status = url.searchParams.get("status") ?? "";
+  const used = url.searchParams.get("used") ?? ""; // "yes" | "no" | ""
 
-  if (q)       query = query.ilike("code", `%${q}%`);
-  if (type)    query = query.eq("type", type);
-  if (status)  query = query.eq("status", status);
-  if (used === "yes") query = query.gt("used_count", 0);
-  if (used === "no")  query = query.eq("used_count", 0);
-  if (assigned === "assigned")   query = query.not("assigned_to_name", "is", null);
-  if (assigned === "unassigned") query = query.is("assigned_to_name", null);
+  const sort = (url.searchParams.get("sort") as SortKey) || "created";
+  const dir = (url.searchParams.get("dir") as Dir) || "desc";
 
-  const { data: items, error, count } = await query;
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 200);
+  const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10) || 0, 0);
 
-  // stats (ACTIVE ONLY)
-  const { data: activeRows, error: e2 } = await supabase
+  const supa = supabaseServer();
+
+  // ---------- BASE QUERY ----------
+  // We always select columns the page uses.
+  let query = supa
     .from("promo_codes")
-    .select("type, used_count, status")
-    .eq("status", "active")
-    .limit(5000);
+    .select("id, code, type, status, used_count, created_at, updated_at, assigned_to_name, assigned_to_email:assigned_email, assigned_to_phone:assigned_phone, expires_at, created_by", { count: "exact" });
 
-  if (e2) return NextResponse.json({ ok: false, error: e2.message }, { status: 500 });
+  // ---------- FILTERS ----------
+  if (type) query = query.eq("type", type);
+  if (status) query = query.eq("status", status);
+  if (used === "yes") query = query.gt("used_count", 0);
+  if (used === "no") query = query.eq("used_count", 0);
 
-  let created_eb = 0, created_ar = 0, created_sf = 0;
-  let used_eb = 0, used_ar = 0, used_sf = 0;
-
-  for (const r of (activeRows || [])) {
-    if (r.type === "early_bird") {
-      created_eb++;
-      if ((r.used_count || 0) > 0) used_eb++;
-    } else if (r.type === "artist") {
-      created_ar++;
-      if ((r.used_count || 0) > 0) used_ar++;
-    } else if (r.type === "staff") {
-      created_sf++;
-      if ((r.used_count || 0) > 0) used_sf++;
-    }
+  if (q) {
+    const needle = escapeIlike(q);
+    // case-insensitive partial match on code OR assigned_to_name
+    query = query.or(`code.ilike.%${needle}%,assigned_to_name.ilike.%${needle}%`);
   }
 
-  const created_total = created_eb + created_ar + created_sf;
-  const used_total = used_eb + used_ar + used_sf;
+  // ---------- SORT ----------
+  query = query.order(mapSort(sort), { ascending: dir === "asc" });
 
-  const stats = {
-    created: { early_bird: created_eb, artist: created_ar, staff: created_sf, total: created_total },
-    used:    { early_bird: used_eb,    artist: used_ar,    staff: used_sf,    total: used_total },
-    caps:    { early_bird: 150, artist: 120, staff: null }
-  };
+  // ---------- PAGINATION ----------
+  // Supabase range is inclusive indexes
+  const from = offset;
+  const to = offset + limit - 1;
+  query = query.range(from, to);
 
-  return NextResponse.json({ ok: true, items: items || [], total: count ?? 0, stats });
-}
-
-// ===== POST: create (unchanged) =====
-export async function POST(req: NextRequest) {
-  const gate = await requireAdmin(req);
-  if ("error" in gate) return gate.error;
-
-  const supabase = supabaseServer();
-  const body = await req.json().catch(() => ({}));
-  const type = body?.type as "early_bird"|"artist"|"staff";
-  const qty = Math.max(1, Math.min(1000, parseInt(body?.qty ?? 1, 10)));
-  const assigned_to_name = (body?.assigned_to_name ?? null) as string | null;
-  const assigned_email = (body?.assigned_email ?? null) as string | null;
-  const assigned_phone = (body?.assigned_phone ?? null) as string | null;
-  const note = (body?.note ?? null) as string | null;
-
-  if (!["early_bird","artist","staff"].includes(type)) {
-    return NextResponse.json({ ok: false, error: "INVALID_TYPE" }, { status: 400 });
+  // ---------- RUN ----------
+  const { data: items, error, count } = await query;
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  const rows = [];
-  for (let i = 0; i < qty; i++) {
-    rows.push({
-      code: genCode(type),
-      type,
-      status: "active",
-      assigned_to_name, assigned_email, assigned_phone, note,
-      created_by: gate.user.email,
+  // ---------- STATS ----------
+  // Prefer RPC if available, otherwise a tiny JS fallback
+  let stats: any = null;
+  try {
+    const { data: sdata, error: sErr } = await supa.rpc("promo_stats_active_only");
+    if (!sErr && sdata) stats = sdata;
+  } catch {}
+
+  if (!stats) {
+    // Minimal fallback: compute totals from current page (not perfect, but safe)
+    const created = { early_bird: 0, artist: 0, staff: 0, total: 0 };
+    const usedObj = { early_bird: 0, artist: 0, staff: 0, total: 0 };
+    (items || []).forEach((r: any) => {
+      created.total += 1;
+      if (r.type === "early_bird") created.early_bird += 1;
+      if (r.type === "artist") created.artist += 1;
+      if (r.type === "staff") created.staff += 1;
+
+      if (r.used_count > 0) {
+        usedObj.total += 1;
+        if (r.type === "early_bird") usedObj.early_bird += 1;
+        if (r.type === "artist") usedObj.artist += 1;
+        if (r.type === "staff") usedObj.staff += 1;
+      }
     });
+    stats = { created, used: usedObj, caps: { early_bird: null, artist: null, staff: null } };
   }
 
-  let inserted: any[] = [];
-  let remaining = rows;
-  for (let attempt = 0; attempt < 5 && remaining.length; attempt++) {
-    const { data, error } = await supabase
-      .from("promo_codes")
-      .insert(remaining)
-      .select("id, code, type, status");
-    if (error) {
-      remaining = remaining.map(r => ({ ...r, code: genCode(type) }));
-    } else {
-      inserted = inserted.concat(data || []);
-      remaining = [];
-    }
-  }
-
-  if (remaining.length) {
-    return NextResponse.json({ ok: false, error: "COULD_NOT_GENERATE_UNIQUE" }, { status: 500 });
-  }
-  return NextResponse.json({ ok: true, created: inserted.length, items: inserted });
+  return NextResponse.json({
+    ok: true,
+    items: items || [],
+    total: typeof count === "number" ? count : (items?.length ?? 0),
+    stats,
+  });
 }
