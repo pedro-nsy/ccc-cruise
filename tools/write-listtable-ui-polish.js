@@ -1,4 +1,12 @@
-import { Info, ChevronUp, ChevronDown } from "lucide-react";
+const fs = require("fs");
+const path = require("path");
+
+const FILE = path.join("src","app","admin","promos","sections","ListTable.tsx");
+if (!fs.existsSync(FILE)) { console.error("Not found:", FILE); process.exit(1); }
+const BAK = FILE + ".bak-ui-polish";
+if (!fs.existsSync(BAK)) fs.copyFileSync(FILE, BAK);
+
+const content = `import { Info, ChevronUp, ChevronDown } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { TypeChip, StatusChip } from "./chips";
 
@@ -88,30 +96,44 @@ export default function ListTable({
   }
 
   return (
-    <section className="rounded-2xl border bg-white p-6 text-[13px] md:text-sm text-neutral-700">
-      {/* Header: 4 cols on mobile, 6 cols on md+ */}
-      <div className="grid grid-cols-4 md:grid-cols-6 rounded-xl bg-neutral-50 border border-neutral-200 text-xs font-medium text-neutral-600">
-        <div className="text-center px-2 py-1.5"><Th label="Code" col="code" /></div>
-        <div className="text-center px-2 py-1.5"><Th label="Type" col="type" /></div>
-        <div className="text-center px-2 py-1.5"><Th label="Status" col="status" /></div>
-        {/* Assigned (hidden on mobile) */}
-        <div className="hidden md:block text-center px-2 py-1.5"><Th label="Assigned" col="assigned" /></div>
-        {/* Created (hidden on mobile) */}
-        <div className="hidden md:block text-center px-2 py-1.5"><Th label="Created" col="created" /></div>
-        <div className="text-center px-2 py-1.5">Actions</div>
+    <section className="rounded-2xl border bg-white p-6 text-sm text-neutral-700">
+      {/* Header */}
+      <div className="grid grid-cols-12 rounded-xl bg-neutral-50 border border-neutral-200 text-xs font-medium text-neutral-600">
+        {/* Code */}
+        <div className="col-span-3 text-center px-3 py-2">
+          <Th label="Code" col="code" />
+        </div>
+        {/* Type */}
+        <div className="col-span-2 text-center px-3 py-2">
+          <Th label="Type" col="type" />
+        </div>
+        {/* Status */}
+        <div className="col-span-2 text-center px-3 py-2">
+          <Th label="Status" col="status" />
+        </div>
+        {/* Assigned (hide on mobile) */}
+        <div className="hidden md:block md:col-span-3 text-center px-3 py-2">
+          <Th label="Assigned" col="assigned" />
+        </div>
+        {/* Created (hide on mobile) */}
+        <div className="hidden md:block md:col-span-1 text-center px-3 py-2">
+          <Th label="Created" col="created" />
+        </div>
+        {/* Actions */}
+        <div className="col-span-3 md:col-span-1 text-center px-3 py-2">Actions</div>
       </div>
 
       {/* Rows */}
       <div className="divide-y">
         {items.map((p) => (
-          <div key={String(p.id)} className="grid grid-cols-4 md:grid-cols-6 items-center py-1.5">
-            {/* Code + Copy */}
-            <div className="text-center px-2 py-1.5 font-mono font-semibold break-words">
+          <div key={String(p.id)} className="grid grid-cols-12 items-center">
+            {/* Code + Copy (centered) */}
+            <div className="col-span-3 text-center px-3 py-2 font-mono font-semibold">
               <div className="inline-flex items-center gap-2">
-                <span className="truncate max-w-[9ch] md:max-w-none">{p.code}</span>
+                <span className="truncate">{p.code}</span>
                 <button
                   type="button"
-                  className="px-2 py-1 text-[11px] underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-blue-200 rounded"
+                  className="px-2 py-1 text-xs underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-blue-200 rounded"
                   title="Copy code"
                   onClick={() => onCopy(p.code)}
                 >
@@ -120,60 +142,46 @@ export default function ListTable({
               </div>
             </div>
 
-            {/* Type (smaller chip) */}
-            <div className="text-center px-2 py-1.5">
-              <div className="inline-block text-xs"><TypeChip t={p.type} /></div>
+            {/* Type */}
+            <div className="col-span-2 text-center px-3 py-2">
+              <TypeChip t={p.type} />
             </div>
 
-            {/* Status (smaller chip) */}
-            <div className="text-center px-2 py-1.5">
-              <div className="inline-block text-xs"><StatusChip s={p.status} /></div>
+            {/* Status */}
+            <div className="col-span-2 text-center px-3 py-2">
+              <StatusChip s={p.status} />
             </div>
 
-            {/* Assigned (hide on mobile) */}
-            <div className="hidden md:flex items-center justify-center px-2 py-1.5 whitespace-normal break-words text-center">
+            {/* Assigned (name only, hide on mobile) */}
+            <div className="hidden md:flex md:col-span-3 items-center justify-center px-3 py-2 truncate">
               {p.assigned_to_name || "—"}
             </div>
 
             {/* Created (hide on mobile) */}
-            <div className="hidden md:flex items-center justify-center px-2 py-1.5 whitespace-normal break-words text-center">
+            <div className="hidden md:flex md:col-span-1 items-center justify-center px-3 py-2">
               {p.created_at
                 ? new Date(p.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
                 : "—"}
             </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-1 px-2 py-1.5">
+            {/* Actions (centered). Mobile has only Activate/Archive + icon-only Details */}
+            <div className="col-span-3 md:col-span-1 flex items-center justify-center gap-2 px-3 py-2">
               {p.status === "consumed" ? (
-                <button
-                  type="button"
-                  className="btn btn-ghost text-xs px-2 py-1 opacity-60 cursor-not-allowed no-underline hover:no-underline"
-                  title="Consumed codes cannot be archived"
-                  disabled
-                >
+                <button className="btn btn-ghost disabled:opacity-60" disabled title="Consumed codes cannot be archived">
                   Consumed
                 </button>
               ) : p.status === "active" || p.status === "reserved" ? (
-                <button
-                  type="button"
-                  className="btn btn-ghost text-xs px-2 py-1"
-                  onClick={() => onToggleStatus(p.id, "archived")}
-                >
+                <button type="button" className="btn btn-ghost text-sm px-3 py-1.5" onClick={() => onToggleStatus(p.id, "archived")}>
                   Archive
                 </button>
               ) : (
-                <button
-                  type="button"
-                  className="btn btn-primary text-xs px-2 py-1"
-                  onClick={() => onToggleStatus(p.id, "active")}
-                >
+                <button type="button" className="btn btn-primary text-sm px-3 py-1.5" onClick={() => onToggleStatus(p.id, "active")}>
                   Activate
                 </button>
               )}
-
               <button
                 type="button"
-                className="btn btn-ghost inline-flex items-center justify-center p-2 ml-auto"
+                className="btn btn-ghost inline-flex items-center justify-center p-2"
                 title="Details"
                 onClick={() => onOpenDetails(p)}
               >
@@ -190,7 +198,7 @@ export default function ListTable({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="btn btn-ghost text-xs md:text-sm px-3 py-1.5"
+            className="btn btn-ghost text-sm px-3 py-1.5"
             onClick={() => setPage(page - 1)}
             disabled={page <= 1}
           >
@@ -198,7 +206,7 @@ export default function ListTable({
           </button>
           <button
             type="button"
-            className="btn btn-ghost text-xs md:text-sm px-3 py-1.5"
+            className="btn btn-ghost text-sm px-3 py-1.5"
             onClick={() => setPage(page + 1)}
             disabled={page >= pages}
           >
@@ -209,3 +217,7 @@ export default function ListTable({
     </section>
   );
 }
+`;
+
+fs.writeFileSync(FILE, content, "utf8");
+console.log("✓ Wrote polished, responsive ListTable.tsx. Backup:", path.basename(BAK));

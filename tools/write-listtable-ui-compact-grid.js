@@ -1,4 +1,12 @@
-import { Info, ChevronUp, ChevronDown } from "lucide-react";
+const fs = require("fs");
+const path = require("path");
+
+const FILE = path.join("src","app","admin","promos","sections","ListTable.tsx");
+if (!fs.existsSync(FILE)) { console.error("Not found:", FILE); process.exit(1); }
+const BAK = FILE + ".bak-ui-compact-grid";
+if (!fs.existsSync(BAK)) fs.copyFileSync(FILE, BAK);
+
+const content = `import { Info, ChevronUp, ChevronDown } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { TypeChip, StatusChip } from "./chips";
 
@@ -209,3 +217,7 @@ export default function ListTable({
     </section>
   );
 }
+`;
+
+fs.writeFileSync(FILE, content, "utf8");
+console.log("✓ Wrote compact responsive ListTable (4-col mobile / 6-col desktop) with word-wrap + smaller UI. Backup:", path.basename(BAK));
