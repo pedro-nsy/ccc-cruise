@@ -45,47 +45,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Invalid phone" }, { status: 400 });
     }
 
-    
-    const existingRef = req.cookies.get("ccc_ref")?.value || "";
     const supabase = supabaseServer();
-
-    if (existingRef) {
-      const { data: existingLead } = await supabase
-        .from("leads")
-        .select("booking_ref")
-        .eq("booking_ref", existingRef)
-        .maybeSingle();
-
-      if (existingLead?.booking_ref) {
-        const { error: upErr } = await supabase.from("leads").update({
-          status: "lead",
-          first_name: firstName,
-          last_name: lastName,
-          email,
-          phone,
-          whatsapp_opt_in: whatsappOk,
-        }).eq("booking_ref", existingRef);
-
-        if (upErr) {
-          return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
-        }
-
-        const res = NextResponse.json({ ok: true, ref: existingRef }, { status: 200 });
-        res.cookies.set({
-          name: "ccc_ref",
-          value: existingRef,
-          httpOnly: true,
-          sameSite: "lax",
-          path: "/",
-          maxAge: 60 * 60 * 24 * 14,
-        });
-        return res;
-      }
-    }
-
-    // No usable cookie — create fresh lead + new ref
     const ref = makeBookingRef();
-
 
     const { error } = await supabase.from("leads").insert({
       booking_ref: ref,

@@ -62,34 +62,6 @@ export async function GET(req: Request) {
 
     const { data: items, count: total, error: listErr } = await list;
     if (listErr) return NextResponse.json({ ok: false, error: "QUERY_FAILED", detail: listErr.message }, { status: 500 });
-    // Derive effective status for items in this page from promo_usages (reserved/consumed)
-    const ids = (items || []).map((it:any) => it.id).filter(Boolean);
-    let derived: Record<string, "reserved"|"consumed"> = {};
-    if (ids.length) {
-      const { data: uses, error: usesErr } = await supabase
-        .from("promo_usages")
-        .select("promo_code_id,status")
-        .in("promo_code_id", ids as any)
-        .in("status", ["reserved","consumed"]);
-      if (!usesErr && Array.isArray(uses)) {
-        for (const u of uses as any[]) {
-          const k = String(u.promo_code_id);
-          // consumed wins over reserved
-          if (u.status === "consumed") { derived[k] = "consumed"; continue; }
-          if (!derived[k]) derived[k] = "reserved";
-        }
-      }
-    }
-    const itemsOut = (items || []).map((it:any) => {
-      const k = String(it.id);
-      let nextStatus = it.status;
-      if (it.status !== "archived") {
-        if (derived[k] === "consumed") nextStatus = "consumed";
-        else if (derived[k] === "reserved") nextStatus = "reserved";
-      }
-      return { ...it, status: nextStatus };
-    });
-
 
     // --- GLOBAL STATS (per type) ---
     const types = ["early_bird", "artist", "staff"] as const;
@@ -117,7 +89,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      items: itemsOut || [],
+      items: items || [],
       total: total || 0,
       stats: { created, consumed, in_cap: inCap, caps }
     });
