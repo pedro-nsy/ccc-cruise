@@ -4,10 +4,18 @@ import { supabaseServer } from "@/lib/supabase-server";
 
 /**
  * GET /api/admin/promos
- * Validates filters, maps disabled->archived, returns items + total.
- * (Stats are deferred to Step 2 to avoid errors on column drift.)
+ * Query params:
+ *  - q: string (search code or assigned_* fields)
+ *  - type: 'early_bird' | 'artist' | 'staff' | 'all' | ''
+ *  - status: 'active' | 'reserved' | 'consumed' | 'archived' | 'all' | ''  (maps 'disabled' -> 'archived')
+ *  - used: 'yes' | 'no' | 'all' | ''  (used = consumed)
+ *  - sort: 'created' | 'code' | 'type' | 'status' | 'used'
+ *  - dir: 'asc' | 'desc'
+ *  - page: number (1+)
+ *  - limit: number (default 25)
  */
 export async function GET(req: NextRequest) {
+  // Admin gate
   const gate = await requireAdmin(req);
   if ("error" in gate) return gate.error;
 
@@ -23,6 +31,7 @@ export async function GET(req: NextRequest) {
   const pageRaw = parseInt(sp.get("page") ?? "1", 10);
   const limitRaw = parseInt(sp.get("limit") ?? "25", 10);
 
+  // Legacy map: disabled -> archived
   if (statusRaw === "disabled") statusRaw = "archived";
 
   const allowedStatus = new Set(["", "all", "active", "reserved", "consumed", "archived"]);
@@ -31,13 +40,13 @@ export async function GET(req: NextRequest) {
   const allowedDir  = new Set(["asc", "desc"]);
 
   if (!allowedStatus.has(statusRaw)) {
-    return NextResponse.json({ ok:false, error:"INVALID_STATUS: " + statusRaw }, { status:400 });
+    return NextResponse.json({ ok:false, error:"INVALID_STATUS", message:"status must be one of active|reserved|consumed|archived|all" }, { status:400 });
   }
   if (!allowedType.has(typeRaw)) {
-    return NextResponse.json({ ok:false, error:"INVALID_TYPE: " + typeRaw }, { status:400 });
+    return NextResponse.json({ ok:false, error:"INVALID_TYPE", message:"type must be one of early_bird|artist|staff|all" }, { status:400 });
   }
   if (!allowedSort.has(sortRaw) || !allowedDir.has(dirRaw)) {
-    return NextResponse.json({ ok:false, error:"INVALID_SORT_DIR" }, { status:400 });
+    return NextResponse.json({ ok:false, error:"INVALID_SORT", message:"sort/dir not allowed" }, { status:400 });
   }
 
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
@@ -46,56 +55,88 @@ export async function GET(req: NextRequest) {
 
   const supabase = supabaseServer();
 
-  // Build query
+  // Build base query
   let query = supabase
     .from("promo_codes")
-    .select("*", { count: "exact" }); // <-- select * to avoid missing-column errors
+    .select("id, code, type, status, used_count, assigned_name, assigned_email, assigned_phone, note, created_at", { count: "exact" });
 
+  // q search (code and assigned fields)
   if (qRaw) {
-    const q = "%" + qRaw + "%";
+    const q = '%' + qRaw + '%';
     query = query.or(
       [
         "code.ilike." + q,
         "assigned_name.ilike." + q,
         "assigned_email.ilike." + q,
         "assigned_phone.ilike." + q,
-        "note.ilike." + q
+        "note.ilike." + q,
       ].join(",")
     );
   }
 
+  // type filter
   if (typeRaw && typeRaw !== "all") {
     query = query.eq("type", typeRaw);
   }
 
+  // status filter
   if (statusRaw && statusRaw !== "all") {
     query = query.eq("status", statusRaw);
   }
 
-  // used = consumed yes/no
+  // used filter maps to consumed yes/no
   if (usedRaw === "yes") {
     query = query.eq("status", "consumed");
   } else if (usedRaw === "no") {
     query = query.neq("status", "consumed");
   }
 
+  // Sorting
   const sortMap: Record<string, string> = {
     created: "created_at",
     code: "code",
     type: "type",
     status: "status",
-    used: "used_count"
+    used: "used_count",
   };
   const orderCol = sortMap[sortRaw] ?? "created_at";
   query = query.order(orderCol, { ascending: dirRaw === "asc" });
 
+  // Pagination
   query = query.range(offset, offset + limit - 1);
 
   const { data: items, error, count } = await query;
 
   if (error) {
-    return NextResponse.json({ ok:false, error:"QUERY_FAILED: " + (error.message || "unknown") }, { status:500 });
+    return NextResponse.json({ ok:false, error:"QUERY_FAILED", message:error.message }, { status:500 });
   }
+
+  // Minimal stats fallback (global counts by type/status). We'll improve in Step 2.
+  const stats: any = { totals: { created: 0, consumed: 0 }, by_type: { early_bird: { created: 0, consumed: 0 }, artist: { created: 0, consumed: 0 }, staff: { created: 0, consumed: 0 } } };
+
+  try {
+    // If you have an RPC, you can keep using it; otherwise this fallback runs.
+    const { data: totals } = await supabase
+      .from("promo_codes")
+      .select("type, status");
+
+    if (Array.isArray(totals)) {
+      for (const r of totals) {
+        stats.totals.created++;
+        if (r.status === "consumed") stats.totals.consumed++;
+        if (r.type === "early_bird") {
+          stats.by_type.early_bird.created++;
+          if (r.status === "consumed") stats.by_type.early_bird.consumed++;
+        } else if (r.type === "artist") {
+          stats.by_type.artist.created++;
+          if (r.status === "consumed") stats.by_type.artist.consumed++;
+        } else if (r.type === "staff") {
+          stats.by_type.staff.created++;
+          if (r.status === "consumed") stats.by_type.staff.consumed++;
+        }
+      }
+    }
+  } catch {}
 
   return NextResponse.json({
     ok: true,
@@ -103,6 +144,6 @@ export async function GET(req: NextRequest) {
     total: count ?? 0,
     page,
     limit,
-    stats: null
+    stats
   });
 }

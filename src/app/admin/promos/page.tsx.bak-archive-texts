@@ -58,7 +58,7 @@ export default function AdminPromosPage() {
   const toggleStatus = async (id: string|number, to: "active"|"disabled") => {
     const res = await model.toggleStatus(id, to);
     if (res.ok) {
-      toast.success(to === "active" ? "Code activated" : "Code archived");
+      toast.success(to === "active" ? "Code enabled" : "Code disabled");
       model.fetchList();
     } else {
       toast.error("Update failed");

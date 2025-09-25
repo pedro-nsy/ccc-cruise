@@ -34,7 +34,7 @@
           >
             <option value="">All statuses</option>
             <option value="active">Active</option>
-            <option value="disabled">Disabled</option>
+            <option value="archived">Archived</option>
             <option value="reserved">Reserved</option>
             <option value="consumed">Consumed</option>
           </select>

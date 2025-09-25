@@ -7,8 +7,8 @@
   return <span className={`inline-flex items-center rounded-xl px-2.5 py-1 border text-xs ${color}`}>{label}</span>;
 }
 
-export function StatusChip({ s }: { s: "active"|"archived" }) {
-  const label = s === "active" ? "active" : "archived";
+export function StatusChip({ s }: { s: "active"|"disabled" }) {
+  const label = s === "active" ? "active" : "disabled";
   const color = s === "active" ? "border-neutral-300 text-neutral-700 bg-neutral-50" : "border-amber-300 text-amber-800 bg-amber-50";
   return <span className={`inline-flex items-center rounded-xl px-2.5 py-1 border text-xs ${color}`}>{label}</span>;
 }

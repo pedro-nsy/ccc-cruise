@@ -76,7 +76,7 @@ export default function ListTable({
               {p.status === "active" ? (
                 <button className="btn btn-ghost" onClick={() => onToggleStatus(p.id, "archived")}>Archive</button>
               ) : (
-                <button className="btn btn-primary" onClick={() => onToggleStatus(p.id, "active")}>Activate</button>
+                <button className="btn btn-primary" onClick={() => onToggleStatus(p.id, "active")}>Unarchive</button>
               )}
               <button className="btn btn-ghost inline-flex items-center gap-1" onClick={() => onOpenDetails(p)}>
                 <Info className="w-4 h-4" /> Details
