@@ -11,7 +11,7 @@ export type Promo = {
   id: string | number;
   code: string;
   type: "early_bird" | "artist" | "staff";
-  status: "" | "disabled" | "reserved" | "consumed";
+  status: "active" | "disabled" | "reserved" | "consumed";
   used_count: number;
   created_at: string;
   updated_at: string;
@@ -32,7 +32,7 @@ export type UsageRow = {
   id: string;
   booking_ref: string;
   traveler_id: string | null;
-  status: "" | "consumed" | "released";
+  status: "reserved" | "consumed" | "released";
   reserved_at: string | null;
   consumed_at: string | null;
   released_at: string | null;
