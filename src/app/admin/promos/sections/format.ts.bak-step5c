@@ -13,12 +13,3 @@ export function prettyPhone(s?: string | null) {
   if (cc && a && b && c) return `${cc} (${a}) ${b}-${c}`;
   return s!;
 }
-export function fmtDateTime(iso?: string | null) {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("en-US", {
-      month: "short", day: "numeric", year: "numeric",
-      hour: "numeric", minute: "2-digit"
-    });
-  } catch { return iso as string; }
-}

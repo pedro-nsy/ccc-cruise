@@ -50,7 +50,7 @@ export async function GET(req: Request) {
     // --- LIST (paged) ---
     let list = supabase
       .from("promo_codes")
-      .select("id, code, type, status, assigned_to_name, created_at", { count: "exact" });
+      .select("id, code, type, status, assigned_to_name, created_at, created_by_user_id, created_by_email", { count: "exact" });
 
     if (q) list = list.or("code.ilike." + q + ",assigned_to_name.ilike." + q);
     if (type) list = list.eq("type", type);
@@ -118,6 +118,20 @@ async function countInCap(type: string) {
 }
 
 export async function POST(req: Request) {
+  /*__ACTOR_PARSE__*/
+  let actorEmail: string | null = null;
+  let actorId: string | null = null;
+  try {
+    const auth = req.headers.get("authorization") || "";
+    const token = auth.split(" ")[1] || "";
+    const b64 = token.split(".")[1];
+    if (b64) {
+      const json = JSON.parse(Buffer.from(b64.replace(/-/g,"+").replace(/_/g,"/"), "base64").toString("utf8"));
+      actorEmail = json?.email ?? null;
+      actorId = json?.sub ?? json?.user_metadata?.sub ?? null;
+    }
+  } catch {}
+
   try {
     const body = await req.json().catch(()=> ({}));
     const type = (body?.type || "").trim();

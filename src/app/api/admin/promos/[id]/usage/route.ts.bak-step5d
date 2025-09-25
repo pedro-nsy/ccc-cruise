@@ -20,8 +20,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       released_at,
       created_at,
       updated_at,
-      actor_user_id,
-      actor_email,
       traveler:travelers!promo_usages_traveler_id_fkey (
         first_name,
         last_name
@@ -37,6 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const traveler_name = t
       ? [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || null
       : null;
+    // strip nested traveler before returning
     const { traveler, ...rest } = row || {};
     return { ...rest, traveler_name };
   });

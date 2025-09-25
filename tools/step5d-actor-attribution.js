@@ -1,4 +1,112 @@
-import { TypeChip, StatusChip } from "./chips";
+const fs = require("fs");
+const path = require("path");
+
+function ensureDir(p){ const d = path.dirname(p); if (!fs.existsSync(d)) fs.mkdirSync(d,{recursive:true}); }
+function backupWrite(file, content, tag){
+  ensureDir(file);
+  const bak = file + ".bak-" + tag;
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+/* A) Update /api/admin/promos list+create */
+(function patchPromosRoute(){
+  const file = path.join("src","app","api","admin","promos","route.ts");
+  if (!fs.existsSync(file)) { console.warn("! promos route.ts not found"); return; }
+  let s = fs.readFileSync(file, "utf8");
+
+  // 1) Include created_by_* in the list selection if missing
+  s = s.replace(
+    /select\("id,\s*code,\s*type,\s*status,\s*assigned_to_name,\s*created_at"/,
+    'select("id, code, type, status, assigned_to_name, created_at, created_by_user_id, created_by_email"'
+  );
+
+  // 2) In POST, parse Authorization JWT to capture actor
+  if (!s.includes("/*__ACTOR_PARSE__*/")) {
+    s = s.replace(/export async function POST\(req: Request\) \{/, `export async function POST(req: Request) {
+  /*__ACTOR_PARSE__*/
+  let actorEmail: string | null = null;
+  let actorId: string | null = null;
+  try {
+    const auth = req.headers.get("authorization") || "";
+    const token = auth.split(" ")[1] || "";
+    const b64 = token.split(".")[1];
+    if (b64) {
+      const json = JSON.parse(Buffer.from(b64.replace(/-/g,"+").replace(/_/g,"/"), "base64").toString("utf8"));
+      actorEmail = json?.email ?? null;
+      actorId = json?.sub ?? json?.user_metadata?.sub ?? null;
+    }
+  } catch {}
+`);
+  }
+
+  // 3) Add created_by_* to inserted rows
+  s = s.replace(
+    /batch\.push\(\{ code, type, status: "active" \}\);\s*/g,
+    'batch.push({ code, type, status: "active", created_by_user_id: actorId, created_by_email: actorEmail });\n'
+  );
+
+  backupWrite(file, s, "step5d");
+})();
+
+/* B) Replace /usage route to include actor_email + traveler_name */
+(function writeUsageRoute(){
+  const file = path.join("src","app","api","admin","promos","[id]","usage","route.ts");
+  if (!fs.existsSync(file)) { console.warn("! usage route.ts not found"); return; }
+  const content = `import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/adminAuth";
+import { supabaseServer } from "@/lib/supabase-server";
+
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const gate = await requireAdmin(req);
+  if ("error" in gate) return gate.error;
+
+  const supabase = supabaseServer();
+  const { data, error } = await supabase
+    .from("promo_usages")
+    .select(\`
+      id,
+      promo_code_id,
+      booking_ref,
+      traveler_id,
+      status,
+      reserved_at,
+      consumed_at,
+      released_at,
+      created_at,
+      updated_at,
+      actor_user_id,
+      actor_email,
+      traveler:travelers!promo_usages_traveler_id_fkey (
+        first_name,
+        last_name
+      )
+    \`)
+    .eq("promo_code_id", params.id)
+    .order("created_at", { ascending: false });
+
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+
+  const items = (data || []).map((row: any) => {
+    const t = row?.traveler || null;
+    const traveler_name = t
+      ? [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || null
+      : null;
+    const { traveler, ...rest } = row || {};
+    return { ...rest, traveler_name };
+  });
+
+  return NextResponse.json({ ok: true, items });
+}
+`;
+  backupWrite(file, content, "step5d");
+})();
+
+/* C) Overwrite DetailsDrawer to show "by ..." and generated-by */
+(function writeDrawer(){
+  const file = path.join("src","app","admin","promos","sections","DetailsDrawer.tsx");
+  const content = `import { TypeChip, StatusChip } from "./chips";
 import { fmtDate, fmtDateTime, yesNo, prettyPhone } from "./format";
 import React from "react";
 
@@ -48,8 +156,8 @@ export default function DetailsDrawer({
 
   // Build timeline: Generated (+ actor if available) + mapped usage events, oldest -> newest
   const events: Array<{ label: string; sub?: string; when?: string | null }> = [];
-  const genBy = row.created_by_email ? ` by ${row.created_by_email}` : "";
-  events.push({ label: `Generated${genBy}`, when: row.created_at });
+  const genBy = row.created_by_email ? \` by \${row.created_by_email}\` : "";
+  events.push({ label: \`Generated\${genBy}\`, when: row.created_at });
 
   (usage || [])
     .slice()
@@ -57,20 +165,20 @@ export default function DetailsDrawer({
                  - new Date(b.created_at || b.reserved_at || b.released_at || b.consumed_at || 0).getTime())
     .forEach(u => {
       if (u.status === "reserved") {
-        const who = u.traveler_name ? ` (${u.traveler_name})` : (u.traveler_id ? ` (traveler ${u.traveler_id})` : "");
-        const line = u.booking_ref ? `Reserved for booking ${u.booking_ref}${who}` : `Reserved${who}`;
+        const who = u.traveler_name ? \` (\${u.traveler_name})\` : (u.traveler_id ? \` (traveler \${u.traveler_id})\` : "");
+        const line = u.booking_ref ? \`Reserved for booking \${u.booking_ref}\${who}\` : \`Reserved\${who}\`;
         events.push({ label: line, when: u.reserved_at || u.created_at || null });
       } else if (u.status === "released") {
         events.push({ label: "Released", when: u.released_at || u.created_at || null });
       } else if (u.status === "consumed") {
-        const who = u.traveler_name ? ` (${u.traveler_name})` : (u.traveler_id ? ` (traveler ${u.traveler_id})` : "");
-        events.push({ label: `Consumed${who}`, when: u.consumed_at || u.created_at || null });
+        const who = u.traveler_name ? \` (\${u.traveler_name})\` : (u.traveler_id ? \` (traveler \${u.traveler_id})\` : "");
+        events.push({ label: \`Consumed\${who}\`, when: u.consumed_at || u.created_at || null });
       } else if (u.status === "archived") {
-        const by = u.actor_email ? ` by ${u.actor_email}` : "";
-        events.push({ label: `Archived${by}`, when: u.created_at || null });
+        const by = u.actor_email ? \` by \${u.actor_email}\` : "";
+        events.push({ label: \`Archived\${by}\`, when: u.created_at || null });
       } else if (u.status === "reactivated") {
-        const by = u.actor_email ? ` by ${u.actor_email}` : "";
-        events.push({ label: `Reactivated${by}`, when: u.created_at || null });
+        const by = u.actor_email ? \` by \${u.actor_email}\` : "";
+        events.push({ label: \`Reactivated\${by}\`, when: u.created_at || null });
       }
     });
 
@@ -172,3 +280,6 @@ export default function DetailsDrawer({
     </div>
   );
 }
+`;
+  backupWrite(file, content, "step5d");
+})();

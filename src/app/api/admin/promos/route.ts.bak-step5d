@@ -1,19 +1,4 @@
-const fs = require("fs");
-const path = require("path");
-
-const FILE = path.join("src","app","api","admin","promos","route.ts");
-const BAK  = FILE + ".bak-step4b";
-
-function backupWrite(file, content, tagPath){
-  const dir = path.dirname(file);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  if (fs.existsSync(file) && !fs.existsSync(tagPath)) fs.copyFileSync(file, tagPath);
-  fs.writeFileSync(file, content, "utf8");
-  console.log("✓ wrote", file);
-  console.log("  backup:", fs.existsSync(tagPath) ? tagPath : "(none)");
-}
-
-const content = `import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -199,6 +184,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok:false, code:"UNEXPECTED", message: e?.message || String(e) }, { status:500 });
   }
 }
-`;
-
-backupWrite(FILE, content, BAK);

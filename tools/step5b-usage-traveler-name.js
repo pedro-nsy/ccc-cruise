@@ -1,4 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
+const fs = require("fs");
+const path = require("path");
+
+function backupWrite(file, content, tag){
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const bak = file + ".bak-" + tag;
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+const FILE = path.join("src","app","api","admin","promos","[id]","usage","route.ts");
+
+const content = `import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabase-server";
 
@@ -9,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const supabase = supabaseServer();
   const { data, error } = await supabase
     .from("promo_usages")
-    .select(`
+    .select(\`
       id,
       promo_code_id,
       booking_ref,
@@ -20,13 +34,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       released_at,
       created_at,
       updated_at,
-      actor_user_id,
-      actor_email,
       traveler:travelers!promo_usages_traveler_id_fkey (
         first_name,
         last_name
       )
-    `)
+    \`)
     .eq("promo_code_id", params.id)
     .order("created_at", { ascending: false });
 
@@ -37,9 +49,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const traveler_name = t
       ? [t.first_name, t.last_name].filter(Boolean).join(" ").trim() || null
       : null;
+    // strip nested traveler before returning
     const { traveler, ...rest } = row || {};
     return { ...rest, traveler_name };
   });
 
   return NextResponse.json({ ok: true, items });
 }
+`;
+
+backupWrite(FILE, content, "step5b");
