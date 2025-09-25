@@ -1,4 +1,12 @@
-"use client";
+const fs = require("fs");
+const path = require("path");
+
+const FILE = path.join("src","app","admin","promos","page.tsx");
+if (!fs.existsSync(FILE)) { console.error("Not found:", FILE); process.exit(1); }
+const bak = FILE + ".bak-clean-suspense";
+if (!fs.existsSync(bak)) fs.copyFileSync(FILE, bak);
+
+const content = `"use client";
 
 import { useEffect, useMemo, useState, Suspense } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -95,8 +103,8 @@ function AdminPromosApp() {
       return;
     }
     const created = data?.created ?? 0;
-    setGenMsg(`Created ${created} codes.`);
-    toast.success(`Created ${created} code${created === 1 ? "" : "s"}`);
+    setGenMsg(\`Created \${created} codes.\`);
+    toast.success(\`Created \${created} code\${created === 1 ? "" : "s"}\`);
     model.fetchList();
   };
 
@@ -158,3 +166,7 @@ export default function AdminPromosPage() {
     </Suspense>
   );
 }
+`;
+
+fs.writeFileSync(FILE, content, "utf8");
+console.log("✓ Rewrote /admin/promos/page.tsx cleanly with Suspense and force-dynamic. Backup:", path.basename(bak));

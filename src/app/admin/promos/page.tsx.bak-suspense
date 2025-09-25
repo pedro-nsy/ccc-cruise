@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, Suspense } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import toast, { Toaster } from "react-hot-toast";
 
@@ -15,15 +15,12 @@ import DetailsDrawer from "./sections/DetailsDrawer";
 // Shared state (URL-synced; server-driven)
 import { useAdminPromos, type Promo, type UsageRow } from "./hooks/useAdminPromos";
 
-export const dynamic = 'force-dynamic';
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Split into a child so we can wrap only the app with <Suspense>
-function AdminPromosApp() {
+export default function AdminPromosPage() {
   // --- Hook model: holds items/stats/filters and server calls ---
   const model = useAdminPromos();
 
@@ -148,13 +145,5 @@ function AdminPromosApp() {
         />
       )}
     </main>
-  );
-}
-
-export default function AdminPromosPage() {
-  return (
-    <Suspense fallback={<div className="rounded-xl border bg-neutral-50 p-4 text-sm">Loading…</div>}>
-      <AdminPromosApp />
-    </Suspense>
   );
 }
