@@ -54,14 +54,11 @@ export async function GET(req: NextRequest) {
   if (qRaw) {
     const q = "%" + qRaw + "%";
     query = query.or(
-      [
-        "code.ilike." + q,
-        "assigned_name.ilike." + q,
-        "assigned_email.ilike." + q,
-        "assigned_phone.ilike." + q,
-        "note.ilike." + q
-      ].join(",")
-    );
+  [
+    "code.ilike." + q,
+    "assigned_to_name.ilike." + q
+  ].join(",")
+);
   }
 
   if (typeRaw && typeRaw !== "all") {

@@ -12,15 +12,13 @@
       <div className="rounded-2xl border bg-white/80 backdrop-blur p-6 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <input
-            className="rounded-xl border border-neutral-300 px-2.5 py-1.5 text-sm"
+            className="rounded-xl border border-neutral-300 px-3 py-2"
             placeholder="Search code or name…"
             value={q}
             onChange={e => setQ(e.target.value)}
-          
-            onKeyDown={e => e.key === 'Enter' && onSearch()}
           />
           <select
-            className="rounded-xl border border-neutral-300 px-2.5 py-1.5 text-sm"
+            className="rounded-xl border border-neutral-300 px-3 py-2"
             value={type}
             onChange={e => setType(e.target.value)}
           >
@@ -30,7 +28,7 @@
             <option value="staff">Staff</option>
           </select>
           <select
-            className="rounded-xl border border-neutral-300 px-2.5 py-1.5 text-sm"
+            className="rounded-xl border border-neutral-300 px-3 py-2"
             value={status}
             onChange={e => setStatus(e.target.value)}
           >
@@ -41,7 +39,7 @@
             <option value="consumed">Consumed</option>
           </select>
           <select
-            className="rounded-xl border border-neutral-300 px-2.5 py-1.5 text-sm"
+            className="rounded-xl border border-neutral-300 px-3 py-2"
             value={used}
             onChange={e => setUsed(e.target.value)}
           >
@@ -49,16 +47,11 @@
             <option value="yes">Yes</option>
             <option value="no">No</option>
           </select>
-          <div className="flex items-center justify-end gap-2"><button type="button" className="btn btn-primary text-sm px-2.5 py-1.5 text-sm" onClick={onSearch}>Search</button><a
-  href="/admin/promos?page=1"
-  className="btn btn-ghost text-sm px-2.5 py-1.5 text-sm"
-  onClick={() => { setQ(""); setType(""); setStatus(""); setUsed(""); }}
->Clear</a></div>
+          <button type="button" className="btn btn-primary" onClick={onSearch}>
+            Search
+          </button>
         </div>
       </div>
     </div>
   );
 }
-
-
-  

@@ -1,12 +1,4 @@
-// Run from: C:\Users\pedro\Documents\code\ccc-cruise\web
-// node tools/write-admin-promos-get.js
-const fs = require("fs");
-const path = require("path");
-
-const TARGET = path.join("src","app","api","admin","promos","route.ts");
-const BACKUP = TARGET + ".bak-before-0.3B-v2";
-
-const content = `import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabase-server";
 
@@ -114,19 +106,3 @@ export async function GET(req: NextRequest) {
     stats: null
   });
 }
-`;
-
-(function main() {
-  if (!fs.existsSync(TARGET)) {
-    console.error("Not found:", TARGET);
-    process.exit(1);
-  }
-  if (!fs.existsSync(BACKUP)) {
-    fs.copyFileSync(TARGET, BACKUP);
-    console.log("• Backup created:", BACKUP);
-  } else {
-    console.log("i Backup already exists:", BACKUP);
-  }
-  fs.writeFileSync(TARGET, content, "utf8");
-  console.log("✓ Wrote GET route:", TARGET);
-})();
