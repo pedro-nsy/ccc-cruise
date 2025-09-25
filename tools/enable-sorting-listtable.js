@@ -1,4 +1,21 @@
-import { Info, ChevronUp, ChevronDown } from "lucide-react";
+// node tools/enable-sorting-listtable.js
+const fs = require("fs");
+const path = require("path");
+
+const TABLE = path.join("src","app","admin","promos","sections","ListTable.tsx");
+const API   = path.join("src","app","api","admin","promos","route.ts");
+
+// --- helper
+function writeWithBackup(file, content, tag) {
+  if (!fs.existsSync(file)) { console.error("Not found:", file); process.exit(1); }
+  const bak = file + ".bak-step1b-" + tag;
+  if (!fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("• Wrote", file, "(backup:", path.basename(bak) + ")");
+}
+
+// --- ListTable.tsx (sorted headers + created column)
+const listContent = `import { Info, ChevronUp, ChevronDown } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { TypeChip, StatusChip } from "./chips";
 import { yesNo } from "./format";
@@ -40,7 +57,7 @@ export default function ListTable({
     url.searchParams.set("sort", nextSort);
     url.searchParams.set("dir", nextDir);
     url.searchParams.set("page", "1"); // reset page on sort change
-    router.replace(url.toString(), { scroll: false });
+    router.replace(url.toString());
   }
 
   function Th({
@@ -50,7 +67,7 @@ export default function ListTable({
     return (
       <button
         type="button"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setUrl(col); }}
+        onClick={() => setUrl(col)}
         className={"text-left flex items-center gap-1 hover:underline " + (className || "")}
         title={"Sort by " + label}
       >
@@ -96,7 +113,7 @@ export default function ListTable({
             {/* Code + Copy */}
             <div className="col-span-2 font-mono font-semibold flex items-center gap-2">
               {p.code}
-              <button type="button"
+              <button
                 className="px-2 py-1 text-xs underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-blue-200 rounded"
                 title="Copy code"
                 onClick={() => onCopy(p.code)}
@@ -129,11 +146,11 @@ export default function ListTable({
                   Consumed
                 </button>
               ) : p.status === "active" || p.status === "reserved" ? (
-                <button type="button" className="btn btn-ghost" onClick={() => onToggleStatus(p.id, "archived")}>Archive</button>
+                <button className="btn btn-ghost" onClick={() => onToggleStatus(p.id, "archived")}>Archive</button>
               ) : (
-                <button type="button" className="btn btn-primary" onClick={() => onToggleStatus(p.id, "active")}>Activate</button>
+                <button className="btn btn-primary" onClick={() => onToggleStatus(p.id, "active")}>Activate</button>
               )}
-              <button type="button" className="btn btn-ghost inline-flex items-center gap-1" onClick={() => onOpenDetails(p)}>
+              <button className="btn btn-ghost inline-flex items-center gap-1" onClick={() => onOpenDetails(p)}>
                 <Info className="w-4 h-4" /> Details
               </button>
             </div>
@@ -143,3 +160,48 @@ export default function ListTable({
     </section>
   );
 }
+`;
+
+// --- API: add sort=assigned → assigned_to_name
+function patchApiRoute(src) {
+  // add "assigned" to allowedSort if needed, and map to assigned_to_name
+  let out = src;
+  let changed = false;
+
+  if (!/allowedSort.*assigned/.test(out)) {
+    out = out.replace(/(const allowedSort = new Set\(\[)([^\]]*)(\]\);)/,
+      (m, a, b, c) => a + b.replace(/\s+$/, "") + `, "assigned"` + c
+    );
+    changed = true;
+  }
+
+  if (!/assigned:\s*"assigned_to_name"/.test(out)) {
+    out = out.replace(/const sortMap:\s*Record<string,\s*string>\s*=\s*\{([\s\S]*?)\};/,
+      (m, body) => {
+        const withAssigned = body.replace(/\}$/, `  , assigned: "assigned_to_name"\n}`);
+        return `const sortMap: Record<string, string> = {${withAssigned}};`;
+      }
+    );
+    changed = true;
+  }
+
+  return { out, changed };
+}
+
+// --- run
+writeWithBackup(TABLE, listContent, "list");
+if (!fs.existsSync(API)) {
+  console.warn("! API route not found; skipping API patch (sorting will work for existing keys).");
+} else {
+  const apiSrc = fs.readFileSync(API, "utf8");
+  const { out, changed } = patchApiRoute(apiSrc);
+  if (changed) {
+    const bak = API + ".bak-step1b-api";
+    if (!fs.existsSync(bak)) fs.copyFileSync(API, bak);
+    fs.writeFileSync(API, out, "utf8");
+    console.log("• Patched API to support sort=assigned");
+  } else {
+    console.log("i API already supports assigned sort or pattern not found.");
+  }
+}
+console.log("✓ Step 1B sorting enabled.");

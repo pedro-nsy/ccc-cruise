@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   const allowedStatus = new Set(["", "all", "active", "reserved", "consumed", "archived"]);
   const allowedType = new Set(["", "all", "early_bird", "artist", "staff"]);
-  const allowedSort = new Set(["created", "code", "type", "status", "used", "assigned"]);
+  const allowedSort = new Set(["created", "code", "type", "status", "used"]);
   const allowedDir  = new Set(["asc", "desc"]);
 
   if (!allowedStatus.has(statusRaw)) {

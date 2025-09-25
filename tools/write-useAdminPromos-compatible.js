@@ -1,6 +1,12 @@
-"use client";
+// node tools/write-useAdminPromos-compatible.js
+const fs = require("fs");
+const path = require("path");
+const FILE = path.join("src","app","admin","promos","hooks","useAdminPromos.ts");
+if (!fs.existsSync(FILE)) { console.error("Not found:", FILE); process.exit(1); }
+const BAK = FILE + ".bak-compat-step1b";
+if (!fs.existsSync(BAK)) fs.copyFileSync(FILE, BAK);
 
-import { createClient } from "@supabase/supabase-js";
+const content = `\"use client\";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -21,21 +27,19 @@ export type UsageRow = {
   message?: string | null;
 };
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-export type FilterPatch = Partial<{
-  q: string;
-  type: "" | "early_bird" | "artist" | "staff";
-  status: "" | "active" | "archived" | "reserved" | "consumed";
-  used: "" | "yes" | "no";
-}>;
-
-
 // Try to obtain a Supabase token if the client is available.
 // If not, we still work (API may accept without auth per your setup).
+let getTokenOnce: () => Promise<string | ""> = async () => "";
+try {
+  // @ts-ignore
+  const { createClientComponentClient } = require("@supabase/auth-helpers-nextjs");
+  const supabase = createClientComponentClient();
+  getTokenOnce = async () => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || "";
+  };
+} catch {}
+
 // ---- Hook API expected by page.tsx ----
 export function useAdminPromos() {
   const router = useRouter();
@@ -71,13 +75,11 @@ export function useAdminPromos() {
   // Get token once
   useEffect(() => {
     let on = true;
-    supabase.auth.getSession().then(({ data }) => {
-      const t = data.session?.access_token || "";
-      if (on) setToken(t);
-    });
+    getTokenOnce().then(t => { if (on) setToken(t || ""); });
     return () => { on = false; };
   }, []);
-// Helper to build a new URL from current params
+
+  // Helper to build a new URL from current params
   const makeUrl = useCallback((patch?: Record<string,string|null|undefined>) => {
     const url = new URL(window.location.origin + pathname + "?" + sp.toString());
     const set = (k: string, v: string | null | undefined) => {
@@ -91,7 +93,7 @@ export function useAdminPromos() {
   }, [pathname, sp]);
 
   // setFilters expected by page: merge partial and reset page=1
-  const setFilters = useCallback((partial: FilterPatch) => {
+  const setFilters = useCallback((partial: Partial<{ q:string; type:""|"early_bird"|"artist"|"staff"; status:""|"active"|"archived"|"reserved"|"consumed"; used:""|"yes"|"no" }>>) => {
     const url = makeUrl({
       q: partial.q ?? q0,
       type: (partial.type ?? (type0 === "all" ? "" : type0)) || null,
@@ -109,33 +111,29 @@ export function useAdminPromos() {
   }, [makeUrl, router]);
 
   // Build API URL
-  
   const apiUrl = useMemo(() => {
-    const params = new URLSearchParams();
-    if (q0) params.set("q", q0);
-    if (type0 && type0 !== "all") params.set("type", type0);
-    if (status0 && status0 !== "all") params.set("status", status0);
-    if (used0 && used0 !== "all") params.set("used", used0);
-    params.set("sort", sort0);
-    params.set("dir", dir0);
-    params.set("page", String(page0));
-    params.set("limit", String(limit0));
-    return "/api/admin/promos?" + params.toString();
+    const u = new URL("/api/admin/promos", window.location.origin);
+    if (q0) u.searchParams.set("q", q0);
+    if (type0 && type0 !== "all") u.searchParams.set("type", type0);
+    if (status0 && status0 !== "all") u.searchParams.set("status", status0);
+    if (used0 && used0 !== "all") u.searchParams.set("used", used0);
+    u.searchParams.set("sort", sort0);
+    u.searchParams.set("dir", dir0);
+    u.searchParams.set("page", String(page0));
+    u.searchParams.set("limit", String(limit0));
+    return u;
   }, [q0, type0, status0, used0, sort0, dir0, page0, limit0]);
-  
 
   // Fetch list with AbortController
   const abortRef = useRef<AbortController | null>(null);
   const fetchList = useCallback(async () => {
-// wait for token before hitting protected API
-    if (!token) return;
-abortRef.current?.abort();
+    abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
     setLoading(true);
     try {
-      const res = await fetch(apiUrl, {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
+      const res = await fetch(apiUrl.toString(), {
+        headers: token ? { authorization: \`Bearer \${token}\` } : {},
         signal: ac.signal,
       });
       const json = await res.json().catch(() => ({}));
@@ -144,23 +142,23 @@ abortRef.current?.abort();
       setStats(json.stats || null);
       setTotal(json.total || 0);
     } catch (e:any) {
-      if (e?.name !== "AbortError" && e?.message !== "NO_TOKEN") console.error("Load promos failed:", e?.message || e);
+      if (e?.name !== "AbortError") console.error("Load promos failed:", e?.message || e);
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
       setLoading(false);
     }
-   // credentials not needed if JWT is sent
-}, [apiUrl, token]);
-// Refetch on URL param changes
+  }, [apiUrl, token]);
+
+  // Refetch on URL param changes
   useEffect(() => { fetchList(); }, [fetchList]);
 
   // toggleStatus expected by page.tsx
   const toggleStatus = useCallback(async (id: string|number, to: "active"|"disabled"|"archived") => {
     const target = (to === "disabled" ? "archived" : to); // legacy
     try {
-      const res = await fetch(`/api/admin/promos/${id}`, {
+      const res = await fetch(\`/api/admin/promos/\${id}\`, {
         method: "PATCH",
-        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        headers: { "content-type": "application/json", ...(token ? { authorization: \`Bearer \${token}\` } : {}) },
         body: JSON.stringify({ status: target }),
       });
       const json = await res.json().catch(() => ({}));
@@ -175,7 +173,7 @@ abortRef.current?.abort();
     try {
       const res = await fetch("/api/admin/promos", {
         method: "POST",
-        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        headers: { "content-type": "application/json", ...(token ? { authorization: \`Bearer \${token}\` } : {}) },
         body: JSON.stringify(payload),
       });
       const json = await res.json().catch(() => ({}));
@@ -188,8 +186,8 @@ abortRef.current?.abort();
   // loadUsage expected by page.tsx
   const loadUsage = useCallback(async (id: string|number) => {
     try {
-      const res = await fetch(`/api/admin/promos/${id}/usage`, {
-        headers: token ? { authorization: `Bearer ${token}` } : {},
+      const res = await fetch(\`/api/admin/promos/\${id}/usage\`, {
+        headers: token ? { authorization: \`Bearer \${token}\` } : {},
       });
       const json = await res.json().catch(() => ({}));
       return { ok: res.ok && json?.ok !== false, items: json.items || [] };
@@ -212,3 +210,6 @@ abortRef.current?.abort();
     loadUsage,
   };
 }
+`;
+fs.writeFileSync(FILE, content, "utf8");
+console.log("✓ Wrote compatible useAdminPromos.ts (named export + page contract). Backup:", path.basename(BAK));
