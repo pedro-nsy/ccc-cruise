@@ -82,7 +82,7 @@ function AdminPromosApp() {
     setGenMsg("");
     if (!genType) { setGenMsg("Choose a promo type."); return; }
     const payload = {
-      type: genType, quantity: qty,
+      type: genType, qty,
       assigned_to_name: meta.name || null,
       assigned_email:  meta.email || null,
       assigned_phone:  meta.phone || null,
@@ -94,7 +94,7 @@ function AdminPromosApp() {
       toast.error("Create failed");
       return;
     }
-    const created = data?.count ?? 0;
+    const created = data?.created ?? 0;
     setGenMsg(`Created ${created} codes.`);
     toast.success(`Created ${created} code${created === 1 ? "" : "s"}`);
     model.fetchList();
