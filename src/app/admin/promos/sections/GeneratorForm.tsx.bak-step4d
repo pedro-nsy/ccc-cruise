@@ -8,9 +8,7 @@ export default function GeneratorForm({
   qty, setQty,
   meta, setMeta,
   genMsg,
-  genError,            // NEW: optional error string
-  onQuickSubmit,       // NEW: quick create callback (returns created code string)
-  onSubmit             // existing (bulk will use in Step 4E)
+  onSubmit
 }: {
   stats?: any | null;
   genType: GenType; setGenType: (v: GenType)=>void;
@@ -18,32 +16,28 @@ export default function GeneratorForm({
   meta: { name: string; email: string; phone: string; note: string };
   setMeta: (f: (m: typeof meta)=>typeof meta) => void;
   genMsg: string;
-  genError?: string;
-  onQuickSubmit?: () => Promise<string>; // returns created code
   onSubmit: (e: React.FormEvent) => void;
 }) {
+  // mode: quick vs bulk (UI only; submit still delegates to parent)
   const [mode, setMode] = useState<"quick"|"bulk">("quick");
-  const [quickCode, setQuickCode] = useState<string>(""); // success code for inline display
-  const [copyMsg, setCopyMsg] = useState<string>("");     // small copied feedback
-  const [localError, setLocalError] = useState<string>("");
 
+  // when switching modes, apply the UX rules you approved:
+  // quick → force qty=1; bulk → keep qty (but we’ll clamp/disable if invalid)
   const switchMode = (m: "quick"|"bulk") => {
     setMode(m);
-    setLocalError("");
-    setCopyMsg("");
     if (m === "quick") setQty(1);
   };
 
-  // remaining per type
+  // remaining per type (computed from stats: caps - in_cap)
   const remaining = useMemo(() => {
     if (!stats || !genType) return null;
     const caps = stats?.caps?.[genType] ?? null;
     const inCap = stats?.in_cap?.[genType] ?? 0;
-    if (caps === null || typeof caps !== "number") return null; // uncapped (staff)
+    if (caps === null || typeof caps !== "number") return null; // Staff or uncapped
     return Math.max(0, Number(caps) - Number(inCap || 0));
   }, [stats, genType]);
 
-  // format hint
+  // format hint by type
   const hint = useMemo(() => {
     if (genType === "early_bird") return "Example: EL??-???B";
     if (genType === "artist")     return "Example: AR??-???T";
@@ -58,52 +52,17 @@ export default function GeneratorForm({
     return String(remaining);
   }, [genType, remaining]);
 
-  // disabled
+  // Disable rules
   const quickDisabled = !genType;
-
-  // Helper: copy code
-  async function copyCode() {
-    if (!quickCode) return;
-    try {
-      await navigator.clipboard.writeText(quickCode);
-      setCopyMsg("Copied");
-      setTimeout(() => setCopyMsg(""), 1500);
-    } catch {
-      setCopyMsg("Copy failed");
-      setTimeout(() => setCopyMsg(""), 1500);
-    }
-  }
-
-  async function handleQuickCreate(e: React.MouseEvent<HTMLButtonElement>) {
-    e.preventDefault();
-    e.stopPropagation();
-    setLocalError("");
-    setCopyMsg("");
-    setQuickCode("");
-    if (!onQuickSubmit || !genType) return;
-
-    // Force qty=1 for Quick
-    setQty(1);
-
-    try {
-      const code = await onQuickSubmit();
-      if (code) {
-        setQuickCode(code);
-        // reset only Name; keep Type
-        setMeta((m) => ({ ...m, name: "" }));
-      }
-    } catch (err: any) {
-      // Build a friendly message; show remaining if present
-      const msg = (err?.message || err?.error || "Create failed");
-      const rem = (typeof err?.remaining === "number") ? ` Remaining: ${err.remaining}.` : "";
-      setLocalError(msg + rem);
-    }
-  }
+  const bulkOutOfRange = qty < 1 || qty > 20 || Number.isNaN(qty);
+  const bulkOverCap = (remaining !== null && qty > remaining);
+  const bulkDisabled = !genType || bulkOutOfRange || bulkOverCap;
 
   return (
     <section className="space-y-6">
+      {/* Toggle cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Quick Add */}
+        {/* Quick Add card */}
         <div
           className="rounded-2xl border bg-white p-6 space-y-4 hover:border-neutral-300"
           data-active={mode === "quick"}
@@ -151,44 +110,19 @@ export default function GeneratorForm({
             </div>
           </div>
 
-          {/* Error banner (quick) */}
-          {(genError || localError) && (
-            <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-              {genError || localError}
-            </div>
-          )}
-
-          {/* Success panel (quick) */}
-          {quickCode && (
-            <div className="rounded-xl border bg-neutral-50 p-3 text-sm flex items-center justify-between">
-              <div>
-                <div className="text-neutral-700">Created code</div>
-                <div className="font-medium">{quickCode}</div>
-              </div>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={(e) => { e.stopPropagation(); copyCode(); }}
-              >
-                Copy
-              </button>
-            </div>
-          )}
-          {copyMsg && <p className="text-xs text-neutral-600">{copyMsg}</p>}
-
           <div className="flex items-center justify-end pt-1">
             <button
               className="btn btn-primary disabled:opacity-60"
-              type="button"
+              type="submit"
               disabled={quickDisabled}
-              onClick={handleQuickCreate}
+              onClick={(e) => { setQty(1); }}  /* keep qty=1 for quick */
             >
               Create
             </button>
           </div>
         </div>
 
-        {/* Bulk Create (placeholder — wired in Step 4E) */}
+        {/* Bulk Create card */}
         <div
           className="rounded-2xl border bg-white p-6 space-y-4 hover:border-neutral-300"
           data-active={mode === "bulk"}
@@ -233,6 +167,11 @@ export default function GeneratorForm({
                 onClick={(e) => e.stopPropagation()}
               />
               <p className="text-xs text-neutral-500 mt-1">Max 20 at once.</p>
+              {bulkOverCap && (
+                <p className="text-xs text-amber-800 mt-1">
+                  Quantity exceeds Remaining. Reduce quantity or archive codes.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">
@@ -250,23 +189,24 @@ export default function GeneratorForm({
           </div>
 
           <div className="flex items-center justify-end pt-1">
-            <button className="btn btn-primary disabled:opacity-60" type="button" disabled>
+            <button
+              className="btn btn-primary disabled:opacity-60"
+              type="submit"
+              disabled={bulkDisabled}
+            >
               Create
             </button>
           </div>
         </div>
       </div>
 
+      {/* single form wrapper (keeps parent onSubmit intact) */}
+      <form onSubmit={onSubmit} className="sr-only" aria-hidden="true"></form>
+
       {/* legacy message support */}
       {genMsg && (
         <div className="rounded-xl border bg-neutral-50 p-4 text-sm text-neutral-700">
           {genMsg}
-        </div>
-      )}
-      {/* error bubble from parent if provided (kept for compatibility) */}
-      {genError && !quickCode && (
-        <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-          {genError}
         </div>
       )}
     </section>

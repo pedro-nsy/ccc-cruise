@@ -129,26 +129,6 @@ function AdminPromosApp() {
         meta={meta} setMeta={setMeta}
         genMsg={genMsg}
         stats={model.stats}
-          onQuickSubmit={async () => {
-            // Create exactly 1 code (Quick Add)
-            const res = await model.createCodes({
-              type: genType,
-              quantity: 1,
-              assigned_to_name: (meta?.name || "").trim() || undefined
-            });
-            if (res?.ok) {
-              const created = res?.data?.created || [];
-              const code = created[0]?.code || "";
-              // toast + refresh list+stats
-              try { (await import("react-hot-toast")).default.success(`Created 1 ${genType === "early_bird" ? "Early Bird" : genType === "artist" ? "Artist" : "Staff"} code.`); } catch {}
-              // Ensure latest data visible
-              try { await model.fetchList(); } catch {}
-              return code;
-            } else {
-              // Bubble up error object so child can render a friendly banner
-              throw res?.data || { message: "Create failed" };
-            }
-          }}
           onSubmit={createCodes}
       />
 

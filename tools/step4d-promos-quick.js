@@ -1,4 +1,68 @@
-import React, { useMemo, useState } from "react";
+const fs = require("fs");
+const path = require("path");
+
+function writeWithBackup(rel, content, tag){
+  const file = path.join("src","app","admin","promos","sections", rel);
+  const bak  = file + ".bak-" + tag;
+  const dir  = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive:true });
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+function patchPageAddOnQuickSubmit(){
+  const file = path.join("src","app","admin","promos","page.tsx");
+  if (!fs.existsSync(file)) { console.log("! page.tsx not found, skipping patch"); return; }
+  const bak  = file + ".bak-step4d";
+  if (!fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  let s = fs.readFileSync(file, "utf8");
+
+  // Find the <GeneratorForm ... /> tag and add onQuickSubmit prop if missing.
+  const re = /<GeneratorForm([\s\S]*?)\/>/m;
+  const m  = s.match(re);
+  if (!m) { console.log("! GeneratorForm tag not found; no changes"); return; }
+
+  let tag = m[0];
+  if (!/onQuickSubmit=/.test(tag)) {
+    const insertion =
+`onQuickSubmit={async () => {
+            // Create exactly 1 code (Quick Add)
+            const res = await model.createCodes({
+              type: genType,
+              quantity: 1,
+              assigned_to_name: (meta?.name || "").trim() || undefined
+            });
+            if (res?.ok) {
+              const created = res?.data?.created || [];
+              const code = created[0]?.code || "";
+              // toast + refresh list+stats
+              try { (await import("react-hot-toast")).default.success(\`Created 1 \${genType === "early_bird" ? "Early Bird" : genType === "artist" ? "Artist" : "Staff"} code.\`); } catch {}
+              // Ensure latest data visible
+              try { await model.fetchList(); } catch {}
+              return code;
+            } else {
+              // Bubble up error object so child can render a friendly banner
+              throw res?.data || { message: "Create failed" };
+            }
+          }}`;
+
+    // Put the prop right before onSubmit for tidiness if onSubmit exists, otherwise append before "/>"
+    if (/onSubmit=/.test(tag)) {
+      tag = tag.replace(/onSubmit=\{[^}]+\}/, (hit) => insertion + "\n          " + hit);
+    } else {
+      tag = tag.replace(/\/>$/, " " + insertion + " />");
+    }
+    s = s.replace(re, tag);
+    fs.writeFileSync(file, s, "utf8");
+    console.log("✓ patched page.tsx with onQuickSubmit (inline handler)");
+    console.log("  backup:", bak);
+  } else {
+    console.log("… page.tsx already has onQuickSubmit");
+  }
+}
+
+const generatorForm = `import React, { useMemo, useState } from "react";
 
 type GenType = "" | "early_bird" | "artist" | "staff";
 
@@ -95,7 +159,7 @@ export default function GeneratorForm({
     } catch (err: any) {
       // Build a friendly message; show remaining if present
       const msg = (err?.message || err?.error || "Create failed");
-      const rem = (typeof err?.remaining === "number") ? ` Remaining: ${err.remaining}.` : "";
+      const rem = (typeof err?.remaining === "number") ? \` Remaining: \${err.remaining}.\` : "";
       setLocalError(msg + rem);
     }
   }
@@ -272,3 +336,7 @@ export default function GeneratorForm({
     </section>
   );
 }
+`;
+
+writeWithBackup("GeneratorForm.tsx", generatorForm, "step4d");
+patchPageAddOnQuickSubmit();
