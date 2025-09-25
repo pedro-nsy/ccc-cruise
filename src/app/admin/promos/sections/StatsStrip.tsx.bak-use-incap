@@ -13,28 +13,29 @@ export default function StatsStrip({ stats }: { stats: any | null }) {
     artist:     Number(stats?.created?.artist)     || 0,
     staff:      Number(stats?.created?.staff)      || 0,
   };
-
   const consumed: StatObj = {
     early_bird: Number(stats?.consumed?.early_bird) || 0,
     artist:     Number(stats?.consumed?.artist)     || 0,
     staff:      Number(stats?.consumed?.staff)      || 0,
   };
-
-  // in_cap = active + reserved + consumed (everything that still occupies a slot)
-  const inCap: StatObj = {
-    early_bird: Number(stats?.in_cap?.early_bird) || 0,
-    artist:     Number(stats?.in_cap?.artist)     || 0,
-    staff:      Number(stats?.in_cap?.staff)      || 0,
+  const activeOpen: StatObj = {
+    early_bird: Number(stats?.active_open?.early_bird ?? NaN),
+    artist:     Number(stats?.active_open?.artist     ?? NaN),
+    staff:      Number(stats?.active_open?.staff      ?? NaN),
   };
-
   const caps: CapsObj = {
     early_bird: stats?.caps?.early_bird ?? null,
     artist:     stats?.caps?.artist     ?? null,
     staff:      stats?.caps?.staff      ?? null,
   };
 
-  const remEB      = typeof caps.early_bird === "number" ? Math.max(0, caps.early_bird - inCap.early_bird) : null;
-  const remArtist  = typeof caps.artist     === "number" ? Math.max(0, caps.artist     - inCap.artist)     : null;
+  // Remaining uses active_open if present; otherwise falls back to consumed
+  const remEB = typeof caps.early_bird === "number"
+    ? Math.max(0, caps.early_bird - (Number.isNaN(activeOpen.early_bird) ? consumed.early_bird : activeOpen.early_bird))
+    : null;
+  const remArtist = typeof caps.artist === "number"
+    ? Math.max(0, caps.artist - (Number.isNaN(activeOpen.artist) ? consumed.artist : activeOpen.artist))
+    : null;
 
   return (
     <div className="rounded-2xl border bg-white p-6">

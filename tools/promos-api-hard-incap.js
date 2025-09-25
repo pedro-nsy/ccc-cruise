@@ -1,4 +1,13 @@
-import { NextResponse } from "next/server";
+const fs = require("fs");
+const path = require("path");
+
+const DIR = path.join("src","app","api","admin","promos");
+const FILE = path.join(DIR,"route.ts");
+if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
+const BAK = fs.existsSync(FILE) ? FILE + ".bak-hard-incap" : null;
+if (BAK && !fs.existsSync(BAK)) fs.copyFileSync(FILE, BAK);
+
+const out = `import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +35,7 @@ export async function GET(req: Request) {
     const sp = u.searchParams;
 
     const qRaw = (sp.get("q") || "").trim();
-    const q = qRaw ? `%${qRaw}%` : "";
+    const q = qRaw ? \`%$\{qRaw}%\` : "";
     const type = sp.get("type") && sp.get("type") !== "all" ? sp.get("type") : "";
     let status = sp.get("status") && sp.get("status") !== "all" ? sp.get("status")! : "";
     if (status === "disabled") status = "archived"; // bwd-compat
@@ -52,7 +61,7 @@ export async function GET(req: Request) {
       .from("promo_codes")
       .select("id, code, type, status, assigned_to_name, created_at", { count: "exact" });
 
-    if (q) list = list.or(`code.ilike.${q},assigned_to_name.ilike.${q}`);
+    if (q) list = list.or(\`code.ilike.\${q},assigned_to_name.ilike.\${q}\`);
     if (type) list = list.eq("type", type);
     if (status) list = list.eq("status", status);
     if (used === "yes") list = list.eq("status", "consumed");
@@ -97,3 +106,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "UNEXPECTED", detail: e?.message || String(e) }, { status: 500 });
   }
 }
+`;
+fs.writeFileSync(FILE, out, "utf8");
+console.log("✓ Wrote API with hard in_cap counts. Backup:", BAK ? path.basename(BAK) : "(none)");

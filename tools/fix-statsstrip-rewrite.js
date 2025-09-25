@@ -1,4 +1,15 @@
-import React from "react";
+const fs = require("fs");
+const path = require("path");
+
+const file = path.join("src","app","admin","promos","sections","StatsStrip.tsx");
+if (!fs.existsSync(file)) {
+  console.error("Not found:", file);
+  process.exit(1);
+}
+const bak = file + ".bak-fix";
+if (!fs.existsSync(bak)) fs.copyFileSync(file, bak);
+
+const next = `import React from "react";
 
 type StatObj = { early_bird: number; artist: number; staff: number };
 type CapsObj = { early_bird: number | null; artist: number | null; staff: number | null };
@@ -76,3 +87,7 @@ function Block({ title, lines }: { title: string; lines: React.ReactNode[] }) {
     </div>
   );
 }
+`;
+
+fs.writeFileSync(file, next, "utf8");
+console.log("✓ Rewrote StatsStrip.tsx (backup:", path.basename(bak), ")");
