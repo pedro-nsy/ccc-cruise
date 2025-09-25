@@ -1,4 +1,44 @@
-import React, { useMemo, useState } from "react";
+const fs = require("fs");
+const path = require("path");
+
+function writeWithBackup(rel, content, tag){
+  const file = path.join("src","app","admin","promos","sections", rel);
+  const bak  = file + ".bak-" + tag;
+  const dir  = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive:true });
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+  return { file, bak };
+}
+
+function patchPageStatsProp(){
+  const file = path.join("src","app","admin","promos","page.tsx");
+  if (!fs.existsSync(file)) { console.log("! page.tsx not found, skipping"); return; }
+  const bak  = file + ".bak-step4c";
+  if (!fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  let s = fs.readFileSync(file, "utf8");
+
+  // Add stats={model.stats} to <GeneratorForm ... />
+  // Match the opening tag spanning multiple lines.
+  const re = /<GeneratorForm([\s\S]*?)\/>/m;
+  const m  = s.match(re);
+  if (!m) { console.log("! GeneratorForm tag not found; no changes"); return; }
+
+  let tag = m[0];
+  if (!/stats=/.test(tag)) {
+    // insert stats prop just before onSubmit to keep things tidy
+    tag = tag.replace(/onSubmit=\{[^}]+\}/, (hit) => `stats={model.stats}\n          ${hit}`);
+    s = s.replace(re, tag);
+    fs.writeFileSync(file, s, "utf8");
+    console.log("✓ patched page.tsx to pass stats={model.stats}");
+    console.log("  backup:", bak);
+  } else {
+    console.log("… page.tsx already passes stats");
+  }
+}
+
+const generatorForm = `import React, { useMemo, useState } from "react";
 
 type GenType = "" | "early_bird" | "artist" | "staff";
 
@@ -212,3 +252,7 @@ export default function GeneratorForm({
     </section>
   );
 }
+`;
+
+writeWithBackup("GeneratorForm.tsx", generatorForm, "step4c");
+patchPageStatsProp();

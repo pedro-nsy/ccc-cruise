@@ -128,8 +128,7 @@ function AdminPromosApp() {
         qty={qty} setQty={setQty}
         meta={meta} setMeta={setMeta}
         genMsg={genMsg}
-        stats={model.stats}
-          onSubmit={createCodes}
+        onSubmit={createCodes}
       />
 
       <ListTable
