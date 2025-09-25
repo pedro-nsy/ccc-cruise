@@ -149,22 +149,6 @@ function AdminPromosApp() {
               throw res?.data || { message: "Create failed" };
             }
           }}
-          onBulkSubmit={async () => {
-            const payload = {
-              type: genType,
-              quantity: qty,
-              ...(meta?.name ? { assigned_to_name: meta.name.trim() } : {})
-            };
-            const res = await model.createCodes(payload);
-            if (res?.ok) {
-              const count = res?.data?.count ?? 0;
-              try { (await import("react-hot-toast")).default.success(`Created ${count} ${genType === "early_bird" ? "Early Bird" : genType === "artist" ? "Artist" : "Staff"} codes.`); } catch {}
-              try { await model.fetchList(); } catch {}
-              return count;
-            } else {
-              throw res?.data || { message: "Create failed" };
-            }
-          }}
           onSubmit={createCodes}
       />
 

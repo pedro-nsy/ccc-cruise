@@ -1,4 +1,64 @@
-import React, { useMemo, useState } from "react";
+const fs = require("fs");
+const path = require("path");
+
+function writeWithBackup(rel, content, tag){
+  const file = path.join("src","app","admin","promos","sections", rel);
+  const bak  = file + ".bak-" + tag;
+  const dir  = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive:true });
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+function patchPageAddOnBulkSubmit(){
+  const file = path.join("src","app","admin","promos","page.tsx");
+  if (!fs.existsSync(file)) { console.log("! page.tsx not found, skipping patch"); return; }
+  const bak  = file + ".bak-step4e";
+  if (!fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  let s = fs.readFileSync(file, "utf8");
+
+  const re = /<GeneratorForm([\s\S]*?)\/>/m;
+  const m  = s.match(re);
+  if (!m) { console.log("! GeneratorForm tag not found; no changes"); return; }
+
+  let tag = m[0];
+  if (!/onBulkSubmit=/.test(tag)) {
+    const insertion =
+`onBulkSubmit={async () => {
+            const payload = {
+              type: genType,
+              quantity: qty,
+              ...(meta?.name ? { assigned_to_name: meta.name.trim() } : {})
+            };
+            const res = await model.createCodes(payload);
+            if (res?.ok) {
+              const count = res?.data?.count ?? 0;
+              try { (await import("react-hot-toast")).default.success(\`Created \${count} \${genType === "early_bird" ? "Early Bird" : genType === "artist" ? "Artist" : "Staff"} codes.\`); } catch {}
+              try { await model.fetchList(); } catch {}
+              return count;
+            } else {
+              throw res?.data || { message: "Create failed" };
+            }
+          }}`;
+
+    // insert right before onSubmit if present, else before "/>"
+    if (/onSubmit=/.test(tag)) {
+      tag = tag.replace(/onSubmit=\{[^}]+\}/, (hit) => insertion + "\n          " + hit);
+    } else {
+      tag = tag.replace(/\/>$/, " " + insertion + " />");
+    }
+
+    s = s.replace(re, tag);
+    fs.writeFileSync(file, s, "utf8");
+    console.log("✓ patched page.tsx with onBulkSubmit");
+    console.log("  backup:", bak);
+  } else {
+    console.log("… page.tsx already has onBulkSubmit");
+  }
+}
+
+const generatorForm = `import React, { useMemo, useState } from "react";
 
 type GenType = "" | "early_bird" | "artist" | "staff";
 
@@ -90,7 +150,7 @@ export default function GeneratorForm({
       }
     } catch (err: any) {
       const msg = (err?.message || err?.error || "Create failed");
-      const rem = (typeof err?.remaining === "number") ? ` Remaining: ${err.remaining}.` : "";
+      const rem = (typeof err?.remaining === "number") ? \` Remaining: \${err.remaining}.\` : "";
       setQuickError(msg + rem);
     }
   }
@@ -113,7 +173,7 @@ export default function GeneratorForm({
       if (code === "BAD_QUANTITY") {
         msg = "Bulk is limited to 20 at a time.";
       }
-      const rem = (typeof err?.remaining === "number") ? ` Remaining: ${err.remaining}.` : "";
+      const rem = (typeof err?.remaining === "number") ? \` Remaining: \${err.remaining}.\` : "";
       setBulkError(msg + rem);
     }
   }
@@ -286,3 +346,7 @@ export default function GeneratorForm({
     </section>
   );
 }
+`;
+
+writeWithBackup("GeneratorForm.tsx", generatorForm, "step4e");
+patchPageAddOnBulkSubmit();
