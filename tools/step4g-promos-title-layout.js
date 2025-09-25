@@ -1,4 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+const fs = require("fs");
+const path = require("path");
+
+function writeWithBackup(rel, content, tag){
+  const file = path.join("src","app","admin","promos","sections", rel);
+  const bak  = file + ".bak-" + tag;
+  const dir  = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive:true });
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+const generatorForm = `import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type GenType = "" | "early_bird" | "artist" | "staff";
 
@@ -24,45 +37,57 @@ export default function GeneratorForm({
   onBulkSubmit?: () => Promise<number>;      // returns count created
   onSubmit: (e: React.FormEvent) => void;
 }) {
+  // Single section with a checkbox toggle
   const [bulkMode, setBulkMode] = useState(false);
 
+  // local UI state
   const [quickCode, setQuickCode] = useState("");
   const [copyMsg, setCopyMsg] = useState("");
-  const [bannerError, setBannerError] = useState("");
-  const [typeError, setTypeError] = useState("");
-  const [qtyError, setQtyError] = useState("");
+  const [bannerError, setBannerError] = useState("");   // top-of-card banners (server errors)
+  const [typeError, setTypeError] = useState("");       // field error for type (both modes)
+  const [qtyError, setQtyError] = useState("");         // field error for bulk qty
   const [bulkCount, setBulkCount] = useState(0);
 
+  // refs for focus mgmt
   const quickTypeRef = useRef<HTMLSelectElement>(null);
   const bulkTypeRef  = useRef<HTMLSelectElement>(null);
   const bulkQtyRef   = useRef<HTMLInputElement>(null);
 
+  // focus first field when toggling modes
   useEffect(() => {
-    if (bulkMode) setTimeout(() => bulkTypeRef.current?.focus(), 0);
-    else          setTimeout(() => quickTypeRef.current?.focus(), 0);
+    if (bulkMode) {
+      setTimeout(() => bulkTypeRef.current?.focus(), 0);
+    } else {
+      setTimeout(() => quickTypeRef.current?.focus(), 0);
+    }
   }, [bulkMode]);
 
+  // derived stats: remaining per type
   const remaining = useMemo(() => {
     if (!stats || !genType) return null;
     const caps = stats?.caps?.[genType] ?? null;
     const inCap = stats?.in_cap?.[genType] ?? 0;
-    if (caps === null || typeof caps !== "number") return null;
+    if (caps === null || typeof caps !== "number") return null; // Staff or uncapped → hide
     return Math.max(0, Number(caps) - Number(inCap || 0));
   }, [stats, genType]);
 
+  // remaining line display rules
   const showRemainingLine = useMemo(() => {
     if (!genType) return false;
-    if (!stats)   return false;
-    if (genType === "staff") return false;
+    if (!stats)   return false;            // hide if stats missing
+    if (genType === "staff") return false; // hide for staff
     return true;
   }, [stats, genType]);
 
+  // live guards (bulk)
   const bulkOutOfRange = qty < 1 || qty > 20 || Number.isNaN(qty);
   const bulkOverCap = (remaining !== null && qty > remaining);
 
+  // button disabled rules
   const quickDisabled = !genType;
   const bulkDisabled  = !genType || bulkOutOfRange || bulkOverCap;
 
+  // helpers
   function truncateName(s: string) { return (s || "").slice(0, 120); }
 
   async function copyCode() {
@@ -88,8 +113,9 @@ export default function GeneratorForm({
     clearErrors();
     setQuickCode("");
     setBulkCount(0);
-    setQty(1);
+    setQty(1); // safety
 
+    // field validation
     if (!genType) {
       setTypeError("Select a type.");
       quickTypeRef.current?.focus();
@@ -98,17 +124,19 @@ export default function GeneratorForm({
 
     if (!onQuickSubmit) return;
     try {
+      // ensure fast truncate
       setMeta((m) => ({ ...m, name: truncateName(m.name) }));
       const code = await onQuickSubmit();
       if (code) {
         setQuickCode(code);
+        // reset only Name, keep Type
         setMeta((m) => ({ ...m, name: "" }));
       }
     } catch (err: any) {
       const code = err?.code || "";
       let msg = err?.message || err?.error || "We couldn’t create codes. Try again.";
       if (code === "OVER_CAP" && typeof err?.remaining === "number") {
-        msg = `You’re over the cap for ${genType.replace("_"," ")}. Remaining: ${err.remaining}. Reduce quantity or archive codes.`;
+        msg = \`You’re over the cap for \${genType.replace("_"," ")}. Remaining: \${err.remaining}. Reduce quantity or archive codes.\`;
       }
       setBannerError(msg);
     }
@@ -120,6 +148,7 @@ export default function GeneratorForm({
     setQuickCode("");
     setBulkCount(0);
 
+    // field validation
     if (!genType) {
       setTypeError("Select a type.");
       bulkTypeRef.current?.focus();
@@ -138,9 +167,11 @@ export default function GeneratorForm({
 
     if (!onBulkSubmit) return;
     try {
+      // fast truncate
       setMeta((m) => ({ ...m, name: truncateName(m.name) }));
       const count = await onBulkSubmit();
       setBulkCount(count);
+      // reset: qty -> 1, clear name, keep type
       setQty(1);
       setMeta((m) => ({ ...m, name: "" }));
     } catch (err: any) {
@@ -149,7 +180,7 @@ export default function GeneratorForm({
       if (code === "BAD_QUANTITY") {
         msg = "Bulk is limited to 20 at a time.";
       } else if (code === "OVER_CAP" && typeof err?.remaining === "number") {
-        msg = `You’re over the cap for ${genType.replace("_"," ")}. Remaining: ${err.remaining}.`;
+        msg = \`You’re over the cap for \${genType.replace("_"," ")}. Remaining: \${err.remaining}.\`;
       }
       setBannerError(msg);
     }
@@ -157,13 +188,16 @@ export default function GeneratorForm({
 
   return (
     <section className="space-y-6">
+      {/* Empty caps banner when stats missing */}
       {!stats && (
         <div className="rounded-xl border bg-neutral-50 p-4 text-sm text-neutral-700" role="status" aria-live="polite">
           Set caps to track remaining.
         </div>
       )}
 
+      {/* Single panel */}
       <div className="rounded-2xl border bg-white p-6 space-y-6">
+        {/* Header + toggle */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="space-y-1">
             <h3 className="text-lg font-medium">Generate promo codes</h3>
@@ -186,17 +220,19 @@ export default function GeneratorForm({
           </label>
         </div>
 
+        {/* Banners (server/unknown errors) */}
         {(genError || bannerError) && (
           <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-700" role="status" aria-live="polite">
             {genError || bannerError}
           </div>
         )}
 
-        {/* QUICK MODE */}
+        {/* QUICK FIELDS */}
         {!bulkMode && (
           <div className="space-y-4" id="quick-fields">
-            {/* Row: Type + Name */}
+            {/* Row: Type + Name (side-by-side on md+) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Type */}
               <div className="space-y-1">
                 <label className="block text-sm font-medium">Type</label>
                 <select
@@ -217,6 +253,7 @@ export default function GeneratorForm({
                 )}
               </div>
 
+              {/* Name (optional) */}
               <div className="space-y-1">
                 <label className="block text-sm font-medium">Assign name (optional)</label>
                 <input
@@ -230,20 +267,19 @@ export default function GeneratorForm({
               </div>
             </div>
 
-            {/* Success (created code) — compact width on desktop */}
+            {/* Success (created code) */}
             {quickCode && (
-              <div className="md:max-w-md">
-                <div className="rounded-xl border bg-neutral-50 p-3 text-sm flex items-center justify-between" role="status" aria-live="polite">
-                  <div>
-                    <div className="text-neutral-700">Created code</div>
-                    <div className="font-medium">{quickCode}</div>
-                  </div>
-                  <button type="button" className="btn btn-ghost" aria-label="Copy code" onClick={copyCode}>Copy</button>
+              <div className="rounded-xl border bg-neutral-50 p-3 text-sm flex items-center justify-between" role="status" aria-live="polite">
+                <div>
+                  <div className="text-neutral-700">Created code</div>
+                  <div className="font-medium">{quickCode}</div>
                 </div>
+                <button type="button" className="btn btn-ghost" aria-label="Copy code" onClick={copyCode}>Copy</button>
               </div>
             )}
             {copyMsg && <p className="text-xs text-neutral-600">{copyMsg}</p>}
 
+            {/* Action */}
             <div className="flex items-center justify-end pt-1">
               <button className="btn btn-primary disabled:opacity-60" type="button" disabled={quickDisabled} onClick={handleQuickCreate}>
                 Create
@@ -252,11 +288,12 @@ export default function GeneratorForm({
           </div>
         )}
 
-        {/* BULK MODE */}
+        {/* BULK FIELDS */}
         {bulkMode && (
           <div className="space-y-4" id="bulk-fields">
-            {/* Row: Type + Quantity */}
+            {/* Row: Type + Quantity (side-by-side on md+) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Type */}
               <div className="space-y-1">
                 <label className="block text-sm font-medium">Type</label>
                 <select
@@ -277,6 +314,7 @@ export default function GeneratorForm({
                 )}
               </div>
 
+              {/* Quantity */}
               <div className="space-y-1">
                 <label className="block text-sm font-medium">Quantity</label>
                 <input
@@ -295,27 +333,27 @@ export default function GeneratorForm({
               </div>
             </div>
 
-            {/* Assign name to all — half width on desktop */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="block text-sm font-medium">Assign name to all (optional)</label>
-                <input
-                  placeholder="Full name"
-                  className="w-full rounded-xl border border-neutral-300 px-3 py-2 bg-white text-neutral-800
-                             focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
-                  value={meta.name}
-                  onChange={(e) => setMeta((m) => ({ ...m, name: truncateName(e.target.value) }))}
-                />
-                <p className="text-xs text-neutral-500 mt-1">Applied to every code in this batch. For internal reference only — doesn’t affect traveler booking names.</p>
-              </div>
+            {/* Assign name to all (full width) */}
+            <div className="space-y-1">
+              <label className="block text-sm font-medium">Assign name to all (optional)</label>
+              <input
+                placeholder="Full name"
+                className="w-full rounded-xl border border-neutral-300 px-3 py-2 bg-white text-neutral-800
+                           focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                value={meta.name}
+                onChange={(e) => setMeta((m) => ({ ...m, name: truncateName(e.target.value) }))}
+              />
+              <p className="text-xs text-neutral-500 mt-1">Applied to every code in this batch. For internal reference only — doesn’t affect traveler booking names.</p>
             </div>
 
+            {/* Success summary */}
             {bulkCount > 0 && (
               <div className="rounded-xl border bg-neutral-50 p-3 text-sm text-neutral-700" role="status" aria-live="polite">
                 {bulkCount} codes created.
               </div>
             )}
 
+            {/* Action */}
             <div className="flex items-center justify-end pt-1">
               <button className="btn btn-primary disabled:opacity-60" type="button" disabled={bulkDisabled} onClick={handleBulkCreate}>
                 Create
@@ -325,6 +363,7 @@ export default function GeneratorForm({
         )}
       </div>
 
+      {/* Legacy message + error fallbacks (kept for compatibility) */}
       {genMsg && (
         <div className="rounded-xl border bg-neutral-50 p-4 text-sm text-neutral-700">
           {genMsg}
@@ -338,3 +377,6 @@ export default function GeneratorForm({
     </section>
   );
 }
+`;
+
+writeWithBackup("GeneratorForm.tsx", generatorForm, "step4g");

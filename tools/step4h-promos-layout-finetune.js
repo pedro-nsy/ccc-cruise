@@ -1,4 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+const fs = require("fs");
+const path = require("path");
+
+function writeWithBackup(rel, content, tag){
+  const file = path.join("src","app","admin","promos","sections", rel);
+  const bak  = file + ".bak-" + tag;
+  const dir  = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive:true });
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+const generatorForm = `import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type GenType = "" | "early_bird" | "artist" | "staff";
 
@@ -108,7 +121,7 @@ export default function GeneratorForm({
       const code = err?.code || "";
       let msg = err?.message || err?.error || "We couldn’t create codes. Try again.";
       if (code === "OVER_CAP" && typeof err?.remaining === "number") {
-        msg = `You’re over the cap for ${genType.replace("_"," ")}. Remaining: ${err.remaining}. Reduce quantity or archive codes.`;
+        msg = \`You’re over the cap for \${genType.replace("_"," ")}. Remaining: \${err.remaining}. Reduce quantity or archive codes.\`;
       }
       setBannerError(msg);
     }
@@ -149,7 +162,7 @@ export default function GeneratorForm({
       if (code === "BAD_QUANTITY") {
         msg = "Bulk is limited to 20 at a time.";
       } else if (code === "OVER_CAP" && typeof err?.remaining === "number") {
-        msg = `You’re over the cap for ${genType.replace("_"," ")}. Remaining: ${err.remaining}.`;
+        msg = \`You’re over the cap for \${genType.replace("_"," ")}. Remaining: \${err.remaining}.\`;
       }
       setBannerError(msg);
     }
@@ -338,3 +351,6 @@ export default function GeneratorForm({
     </section>
   );
 }
+`;
+
+writeWithBackup("GeneratorForm.tsx", generatorForm, "step4h");
