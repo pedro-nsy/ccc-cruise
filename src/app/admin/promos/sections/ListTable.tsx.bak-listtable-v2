@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+﻿import { Info } from "lucide-react";
 import { TypeChip, StatusChip } from "./chips";
 import { yesNo } from "./format";
 
@@ -9,14 +9,7 @@ export default function ListTable({
   onToggleStatus,
   onOpenDetails,
 }: {
-  items: Array<{
-    id: string|number;
-    code: string;
-    type: "early_bird"|"artist"|"staff";
-    status: "active"|"archived"|"reserved"|"consumed";
-    used_count: number;
-    assigned_to_name: string|null;
-  }>;
+  items: Array<{ id: string|number; code: string; type: "early_bird"|"artist"|"staff"; status: "active"|"archived"; used_count: number; assigned_to_name: string|null; }>;
   loading: boolean;
   onCopy: (code: string)=>void;
   onToggleStatus: (id: string|number, to: "active"|"archived")=>void;
@@ -80,16 +73,9 @@ export default function ListTable({
 
             {/* Actions */}
             <div className="col-span-2 text-right flex items-center justify-end gap-2">
-              {p.status === "consumed" ? (
-                // Defensive UX: consumed cannot be archived; show a disabled chip-like button
-                <button className="btn btn-ghost disabled:opacity-60" disabled title="Consumed codes cannot be archived">
-                  Consumed
-                </button>
-              ) : p.status === "active" || p.status === "reserved" ? (
-                // Active or Reserved → Archive allowed (reserved will auto-release per business rule)
+              {p.status === "active" ? (
                 <button className="btn btn-ghost" onClick={() => onToggleStatus(p.id, "archived")}>Archive</button>
               ) : (
-                // Archived → Activate
                 <button className="btn btn-primary" onClick={() => onToggleStatus(p.id, "active")}>Activate</button>
               )}
               <button className="btn btn-ghost inline-flex items-center gap-1" onClick={() => onOpenDetails(p)}>
