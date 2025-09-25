@@ -1,4 +1,12 @@
-import { Info, ChevronUp, ChevronDown } from "lucide-react";
+const fs = require("fs");
+const path = require("path");
+
+const FILE = path.join("src","app","admin","promos","sections","ListTable.tsx");
+if (!fs.existsSync(FILE)) { console.error("Not found:", FILE); process.exit(1); }
+const BAK = FILE + ".bak-step1c-clean";
+if (!fs.existsSync(BAK)) fs.copyFileSync(FILE, BAK);
+
+const content = `import { Info, ChevronUp, ChevronDown } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { TypeChip, StatusChip } from "./chips";
 import { yesNo } from "./format";
@@ -179,3 +187,7 @@ export default function ListTable({
     </section>
   );
 }
+`;
+
+fs.writeFileSync(FILE, content, "utf8");
+console.log("✓ Wrote clean ListTable.tsx with pagination. Backup:", path.basename(BAK));

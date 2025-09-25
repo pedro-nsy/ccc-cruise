@@ -137,8 +137,6 @@ function AdminPromosApp() {
         onCopy={copyCode}
         onToggleStatus={toggleStatus}
         onOpenDetails={openDetails}
-      
-        total={model.total}
       />
 
       {openId && openRow && (

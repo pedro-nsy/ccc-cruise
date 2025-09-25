@@ -11,32 +11,27 @@ export default function ListTable({
   onCopy,
   onToggleStatus,
   onOpenDetails,
-  total,
 }: {
   items: Array<{
-    id: string | number;
+    id: string|number;
     code: string;
-    type: "early_bird" | "artist" | "staff";
-    status: "active" | "archived" | "reserved" | "consumed";
+    type: "early_bird"|"artist"|"staff";
+    status: "active"|"archived"|"reserved"|"consumed";
     used_count: number;
-    assigned_to_name: string | null;
+    assigned_to_name: string|null;
     created_at?: string;
   }>;
   loading: boolean;
-  onCopy: (code: string) => void;
-  onToggleStatus: (id: string | number, to: "active" | "archived") => void;
-  onOpenDetails: (row: any) => void;
-  total: number;
+  onCopy: (code: string)=>void;
+  onToggleStatus: (id: string|number, to: "active"|"archived")=>void;
+  onOpenDetails: (row: any)=>void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
 
-  const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10));
-  const limit = Math.max(1, parseInt(sp.get("limit") ?? "25", 10));
-  const pages = Math.max(1, Math.ceil((total || 0) / limit));
-  const sort: SortKey = ((sp.get("sort") as SortKey) || "created");
-  const dir = (sp.get("dir") === "asc" ? "asc" : "desc");
+  const sort = (sp.get("sort") as SortKey) || "created";
+  const dir  = (sp.get("dir") === "asc" ? "asc" : "desc");
 
   function setUrl(nextSort: SortKey) {
     const url = new URL(window.location.origin + pathname + "?" + sp.toString());
@@ -48,14 +43,9 @@ export default function ListTable({
     router.replace(url.toString(), { scroll: false });
   }
 
-  function setPage(next: number) {
-    const url = new URL(window.location.origin + pathname + "?" + sp.toString());
-    const n = Math.min(Math.max(1, next), pages);
-    url.searchParams.set("page", String(n));
-    router.replace(url.toString(), { scroll: false });
-  }
-
-  function Th({ label, col, className }: { label: string; col: SortKey; className?: string }) {
+  function Th({
+    label, col, className
+  }: { label: string; col: SortKey; className?: string }) {
     const active = sort === col;
     return (
       <button
@@ -106,8 +96,7 @@ export default function ListTable({
             {/* Code + Copy */}
             <div className="col-span-2 font-mono font-semibold flex items-center gap-2">
               {p.code}
-              <button
-                type="button"
+              <button type="button"
                 className="px-2 py-1 text-xs underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-blue-200 rounded"
                 title="Copy code"
                 onClick={() => onCopy(p.code)}
@@ -130,9 +119,7 @@ export default function ListTable({
 
             {/* Created */}
             <div className="col-span-1">
-              {p.created_at
-                ? new Date(p.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-                : "—"}
+              {p.created_at ? new Date(p.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—"}
             </div>
 
             {/* Actions */}
@@ -152,29 +139,6 @@ export default function ListTable({
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Pagination */}
-      <div className="mt-4 flex items-center justify-between text-sm">
-        <div className="text-neutral-600">Page {page} of {pages}</div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="btn btn-ghost text-sm px-3 py-1.5"
-            onClick={() => setPage(page - 1)}
-            disabled={page <= 1}
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost text-sm px-3 py-1.5"
-            onClick={() => setPage(page + 1)}
-            disabled={page >= pages}
-          >
-            Next
-          </button>
-        </div>
       </div>
     </section>
   );
