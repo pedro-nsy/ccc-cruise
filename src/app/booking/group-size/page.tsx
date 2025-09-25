@@ -154,7 +154,7 @@ export default function Page() {
         <div className="rounded-xl border bg-neutral-50 p-4 text-sm">
           <div className="flex items-center justify-between">
             <div>Total travelers</div>
-            <div className="font-medium">{total} (Adults {adults}, Minors {minors})</div>
+            <div className="font-medium">{total} ({adults} Adults, {minors} Minors)</div>
           </div>
           {errors.total && <p className="text-xs text-red-700 mt-2">{errors.total}</p>}
         </div>
