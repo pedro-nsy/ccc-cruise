@@ -3,115 +3,109 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type CategoryKey = "INTERIOR" | "OCEANVIEW" | "BALCONY";
-
-type ApiLayout = {
-  doubles: number;
-  triples: number;
-  quads: number;
-  cabins: number;
-  seats: number;
-  totalCents: number;
-  totalLabel: string;
-  recommended: boolean;
-};
-
-type ApiCategory = {
+type Layout = { doubles:number; triples:number; quads:number; cabins:number; seats:number; totalCents:number; totalLabel:string; recommended?:boolean };
+type Category = {
   key: CategoryKey;
-  label: string;              // "Interior" | "Ocean View" | "Balcony"
+  label: string;
   fromCents: number;
-  fromLabel: string;          // e.g., "MXN 28,800 pp (double)"
+  fromLabel: string;              // "MXN 28,800 pp (double)"
   hasStaff: boolean;
   hasArtist: boolean;
   hasEb: boolean;
-  disabledReason: string | null;
-  layouts: ApiLayout[];       // up to 3
+  artistRemaining: number;        // Step 1 addition
+  ebRemaining: number;            // Step 1 addition
+  disabledReason: string | null;  // gate from promos / capacity
+  layouts: Layout[];
 };
 
-type ApiResponse = {
+type OptionsResponse = {
   ok: true;
   groupSize: number;
   adults: number;
-  categories: ApiCategory[];
-};
+  categories: Category[];
+} | { ok:false; error:string };
 
-function layoutName(l: ApiLayout) {
-  const parts: string[] = [];
-  if (l.quads) parts.push(`${l.quads}× quad`);
-  if (l.triples) parts.push(`${l.triples}× triple`);
-  if (l.doubles) parts.push(`${l.doubles}× double`);
-  return parts.join(" · ");
+function cx(...cls:(string|false|undefined|null)[]) {
+  return cls.filter(Boolean).join(" ");
 }
 
-export default function CabinsPage() {
+export default function Page() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-  const [data, setData] = useState<ApiResponse | null>(null);
-
-  // UI state
-  const [selectedCategory, setSelectedCategory] = useState<CategoryKey | null>(null);
+  const [err, setErr] = useState<string|undefined>();
+  const [groupSize, setGroupSize] = useState<number>(0);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCat, setSelectedCat] = useState<CategoryKey | null>(null);
   const [selectedLayoutIdx, setSelectedLayoutIdx] = useState<number | null>(null);
 
+  // Fetch options
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      const res = await fetch("/api/booking/cabins/options", { cache: "no-store" });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Failed to load options");
+    let cancelled = false;
+    async function run() {
+      try {
+        const res = await fetch("/api/booking/cabins/options", { cache: "no-store" });
+        const json = await res.json() as OptionsResponse;
+        if (!json.ok) throw new Error(json.error || "Failed to load options");
+        if (cancelled) return;
+
+        setGroupSize(json.groupSize);
+        setCategories(json.categories);
+
+        // Preselect first enabled category if none chosen yet
+        const firstEnabled = json.categories.find(c => !c.disabledReason) || json.categories[0] || null;
+        setSelectedCat(firstEnabled ? firstEnabled.key : null);
+        setSelectedLayoutIdx(null);
+        setLoading(false);
+      } catch (e:any) {
+        if (cancelled) return;
+        setErr(e?.message || "Failed to load");
+        setLoading(false);
       }
-      const j = (await res.json()) as ApiResponse;
-      if (!alive) return;
-      setData(j);
-      // preselect first category that's not disabled
-      const firstEnabled = j.categories.find(c => !c.disabledReason)?.key ?? j.categories[0]?.key ?? null;
-      setSelectedCategory(firstEnabled);
-    })().catch((e) => setErr(e.message || "Failed to load options"))
-      .finally(() => setLoading(false));
-    return () => { alive = false; };
+    }
+    run();
+    return () => { cancelled = true; };
   }, []);
 
-  // reset layout selection when category changes
-  useEffect(() => { setSelectedLayoutIdx(null); }, [selectedCategory]);
+  const selectedCategory = useMemo(
+    () => categories.find(c => c.key === selectedCat) || null,
+    [categories, selectedCat]
+  );
 
-  const currentCategory = useMemo(() => {
-    if (!data || !selectedCategory) return null;
-    return data.categories.find(c => c.key === selectedCategory) || null;
-  }, [data, selectedCategory]);
+  function onChooseCategory(key: CategoryKey, disabled: boolean) {
+    if (disabled) return;
+    setSelectedCat(key);
+    setSelectedLayoutIdx(null);
+  }
+
+  function onChooseLayout(i: number) {
+    setSelectedLayoutIdx(i);
+  }
 
   async function onContinue(e: React.FormEvent) {
     e.preventDefault();
-    if (!currentCategory || currentCategory.disabledReason) return;
-    if (selectedLayoutIdx == null) return;
-    const picked = currentCategory.layouts[selectedLayoutIdx];
-    if (!picked) return;
+    if (!selectedCategory || selectedLayoutIdx == null) return;
 
-    const payload = {
-      category: currentCategory.key,
+    const chosenLayout = selectedCategory.layouts[selectedLayoutIdx];
+    if (!chosenLayout) return;
+
+    const body = {
+      category: selectedCategory.key,
       layout: {
-        doubles: picked.doubles,
-        triples: picked.triples,
-        quads: picked.quads,
-        cabins: picked.cabins,
+        doubles: chosenLayout.doubles,
+        triples: chosenLayout.triples,
+        quads: chosenLayout.quads,
+        cabins: chosenLayout.cabins,
       }
     };
 
-    // Mirror minimal bits to localStorage for the Assign editor (it reads ccc-draft)
-    try {
-      const draftRaw = typeof window !== "undefined" ? localStorage.getItem("ccc-draft") : null;
-      const draft = draftRaw ? JSON.parse(draftRaw) : {};
-      const next = { ...draft, cabins: { category: currentCategory.key, layout: payload.layout } };
-      localStorage.setItem("ccc-draft", JSON.stringify(next));
-    } catch {}
-
     const res = await fetch("/api/booking/cabins/select", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      alert(j?.error || "Could not save your selection.");
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || "Unable to save selection");
       return;
     }
     router.push("/booking/cabins/assign");
@@ -120,152 +114,200 @@ export default function CabinsPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-xl sm:max-w-2xl rounded-2xl border bg-white p-6 text-center text-neutral-600">
-        Loading options…
+        Loading layouts…
       </div>
     );
   }
-  if (err || !data) {
+  if (err) {
     return (
-      <div className="mx-auto max-w-xl sm:max-w-2xl rounded-2xl border bg-red-100 p-6 text-sm text-red-700">
-        {err || "Could not load options."}
+      <div className="mx-auto max-w-xl sm:max-w-2xl rounded-2xl border bg-red-50 p-6 text-center text-red-700">
+        {err}
       </div>
     );
   }
-
-  const canContinue = !!currentCategory && !currentCategory.disabledReason && selectedLayoutIdx != null;
 
   return (
     <form onSubmit={onContinue} className="mx-auto max-w-xl sm:max-w-2xl space-y-8">
-      {/* Header */}
+      {/* Page header */}
       <header className="text-center space-y-3">
-        <h1 className="text-2xl md:text-3xl font-semibold">Choose your cabin category</h1>
+        <h1 className="text-2xl md:text-3xl font-semibold">Select your cabin category and layout</h1>
         <p className="text-neutral-700">
-          We’ll only show layouts that make sense for your group size and ensure there’s at least one adult per cabin.
+          We’ll only show layouts that make sense for your group size ({groupSize}) and ensure there’s at least one adult per cabin.
         </p>
         <p className="text-neutral-600 text-sm">
-          If you have a promo code, your price will be adjusted automatically and shown on the Review step.
+          Prices shown are per person for each category in double occupancy; final pricing is confirmed on the Review step.
         </p>
       </header>
 
-      {/* Section 1: pick category */}
+      {/* Section 1: Category selection */}
       <section className="space-y-3">
-        {data.categories.map((cat) => {
-          const disabled = !!cat.disabledReason;
-          const active = selectedCategory === cat.key;
-          return (
-            <label
-              key={cat.key}
-              className={`
-                block rounded-2xl border p-5 bg-white hover:border-neutral-300
-                ${active ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200"}
-                ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
-              `}
-            >
-              <div className="flex items-start gap-3">
+        <h2 className="text-xl md:text-2xl font-semibold text-center">Choose your preferred category</h2>
+        <p className="text-sm text-neutral-600 text-center">Pick the cabin type you want. You’ll choose the layout next.</p>
+
+        <div className="grid grid-cols-1 gap-4">
+          {categories.map(cat => {
+            const active = selectedCat === cat.key && !cat.disabledReason;
+            const disabled = !!cat.disabledReason;
+
+            return (
+              <div
+                key={cat.key}
+                role="button"
+                tabIndex={disabled ? -1 : 0}
+                onClick={() => onChooseCategory(cat.key, disabled)}
+                onKeyDown={(e)=>{ if ((e.key === "Enter" || e.key === " ") && !disabled) onChooseCategory(cat.key, disabled); }}
+                data-active={active || undefined}
+                className={cx(
+                  "rounded-2xl border bg-white p-5 cursor-pointer",
+                  "hover:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-200",
+                  "transition",
+                  disabled && "opacity-60 pointer-events-none",
+                  active && "border-blue-600 ring-2 ring-blue-100"
+                )}
+              >
+                {/* Hidden radio for a11y */}
                 <input
                   type="radio"
                   name="category"
-                  className="mt-1 h-4 w-4 rounded border-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  className="sr-only"
                   checked={active}
-                  onChange={() => setSelectedCategory(cat.key)}
-                  disabled={disabled}
+                  readOnly
+                  aria-label={`Select ${cat.label}`}
                 />
-                <div className="flex-1 space-y-1">
-                  <div className="text-lg font-medium">{cat.label}</div>
-                  <div className="text-sm text-neutral-700">From {cat.fromLabel}</div>
-                  <div className="text-xs text-neutral-500">
-                    If you have a promo code, your price will be adjusted automatically and shown on the Review step.
+
+                {/* Top row: label + chips */}
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="text-lg font-medium">{cat.label}</div>
+                    <div className="text-sm text-neutral-600">From <span className="font-medium">{cat.fromLabel}</span></div>
                   </div>
 
-                  {disabled && (
-                    <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                      Not available with your promo codes right now.
+                  {/* Promo chips (right) — only show chips for promo types present */}
+                  {(cat.hasArtist || cat.hasEb) && (
+                    <div className="flex items-center gap-2">
+                      {cat.hasArtist && (
+                        <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-green-50 text-green-700 border-green-200">
+                          Artist: {cat.artistRemaining} left
+                        </span>
+                      )}
+                      {cat.hasEb && (
+                        <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-blue-50 text-blue-700 border-blue-200">
+                          Early Bird: {cat.ebRemaining} left
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
+
+                {/* Disabled banner */}
+                {disabled && (
+                  <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                    {cat.disabledReason}
+                  </div>
+                )}
               </div>
-            </label>
-          );
-        })}
+            );
+          })}
+        </div>
       </section>
 
-      {/* Section 2: layouts for the selected category (separate block) */}
-      <section className="rounded-2xl border bg-white p-6">
-        <div className="text-lg font-medium mb-2">
-          {currentCategory ? `Available layouts for ${currentCategory.label}` : "Available layouts"}
-        </div>
+      {/* Section 2: Layouts for selected category */}
+      <section className="space-y-3">
+        <h2 className="text-xl md:text-2xl font-semibold text-center">
+          {selectedCategory ? `Available layouts for ${selectedCategory.label}` : "Available layouts"}
+        </h2>
+        <p className="text-sm text-neutral-600 text-center">
+          Select a layout. You can assign each traveler in your group to a cabin next.
+        </p>
 
-        {!currentCategory && (
-          <div className="text-sm text-neutral-600">Select a category above to see layout options.</div>
-        )}
-
-        {currentCategory && currentCategory.disabledReason && (
+        {!selectedCategory ? (
+          <div className="rounded-xl border bg-neutral-50 p-4 text-sm text-neutral-700 text-center">
+            Choose a category above to see layouts.
+          </div>
+        ) : selectedCategory.disabledReason ? (
           <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
             This category isn’t available with your promo codes right now.
           </div>
-        )}
+        ) : selectedCategory.layouts.length === 0 ? (
+          <div className="rounded-xl border bg-neutral-50 p-4 text-sm text-neutral-700">
+            We couldn’t find a feasible layout for your group size in this category.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {selectedCategory.layouts.map((L, i) => {
+              const active = selectedLayoutIdx === i;
+              const labelParts:string[] = [];
+              if (L.quads)   labelParts.push(`${L.quads}× quad`);
+              if (L.triples) labelParts.push(`${L.triples}× triple`);
+              if (L.doubles) labelParts.push(`${L.doubles}× double`);
+              const layoutName = labelParts.join(" · ");
 
-        {currentCategory && !currentCategory.disabledReason && (
-          <>
-            {currentCategory.layouts.length === 0 ? (
-              <div className="text-sm text-neutral-600">
-                We couldn’t find a feasible layout for your group size in this category.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {currentCategory.layouts.map((L, idx) => {
-                  const selected = selectedLayoutIdx === idx;
-                  const roomsText = L.cabins === 1 ? "1 stateroom" : `${L.cabins} staterooms`;
-                  return (
-                    <label
-                      key={idx}
-                      className={`
-                        block rounded-2xl border p-4
-                        ${selected ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200"}
-                        cursor-pointer
-                      `}
-                    >
-                      <div className="flex items-start gap-3">
+              return (
+                <label
+                  key={i}
+                  data-active={active || undefined}
+                  className={cx(
+                    "rounded-2xl border bg-white p-5 cursor-pointer",
+                    "hover:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-200",
+                    active && "border-blue-600 ring-2 ring-blue-100"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
                         <input
                           type="radio"
                           name="layout"
-                          className="mt-1 h-4 w-4 rounded border-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                          checked={selected}
-                          onChange={() => setSelectedLayoutIdx(idx)}
+                          className="h-4 w-4"
+                          checked={active}
+                          onChange={() => onChooseLayout(i)}
                         />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <div className="font-medium">{layoutName(L)}</div>
-                            {L.recommended && (
-                              <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-green-50 text-green-700 border-green-200">
-                                Recommended
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-neutral-600">
-                            {roomsText} · you can adjust assignments on the next step.
-                          </div>
-                          <div className="text-sm mt-1">
-                            <span className="text-neutral-600">Estimated total: </span>
-                            <span className="font-medium">{L.totalLabel}</span>
-                          </div>
-                        </div>
+                        <div className="text-lg font-medium">{layoutName}</div>
+                        {L.recommended && (
+                          <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-green-50 text-green-700 border-green-200">
+                            Recommended
+                          </span>
+                        )}
                       </div>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        )}
-      </section>
+                      <div className="text-sm text-neutral-600">
+                        {L.cabins} stateroom{L.cabins === 1 ? "" : "s"} · you can adjust assignments on the next step.
+                      </div>
+                    </div>
 
-      <p className="text-xs text-neutral-500 text-center">Staff upgrades will be calculated automatically.</p>
+                    <div className="text-right">
+                      <div className="text-sm text-neutral-600">Estimated total</div>
+                      <div className="text-xl font-semibold">{L.totalLabel}</div>
+                    </div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Staff note — only when staff promos exist */}
+        {selectedCategory?.hasStaff && (
+          <p className="text-xs text-neutral-500 text-center">
+            Staff upgrades will be calculated automatically.
+          </p>
+        )}
+
+        {/* Connected rooms note */}
+        <p className="text-xs text-neutral-500 text-center">
+          Connected rooms aren’t guaranteed, but we’ll keep your staterooms as close together as possible. Each cabin must include at least one adult.
+        </p>
+      </section>
 
       {/* Actions */}
       <div className="flex items-center justify-between">
-        <a href="/booking/travelers" className="btn btn-ghost">Back</a>
-        <button type="submit" className="btn btn-primary disabled:opacity-60" disabled={!canContinue}>
+        <button type="button" onClick={() => router.push("/booking/travelers")} className="btn btn-ghost">
+          Back
+        </button>
+        <button
+          type="submit"
+          className="btn btn-primary disabled:opacity-60"
+          disabled={!selectedCategory || selectedLayoutIdx == null || !!selectedCategory.disabledReason}
+        >
           Continue
         </button>
       </div>
