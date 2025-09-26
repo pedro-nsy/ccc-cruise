@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState, Suspense } from "react";
-import { createClient } from "@supabase/supabase-js";
 import toast, { Toaster } from "react-hot-toast";
 
 // Sections
@@ -15,27 +14,10 @@ import DetailsDrawer from "./sections/DetailsDrawer";
 // Shared state (URL-synced; server-driven)
 import { useAdminPromos, type Promo, type UsageRow } from "./hooks/useAdminPromos";
 
-export const dynamic = 'force-dynamic';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-// Split into a child so we can wrap only the app with <Suspense>
+export const dynamic = 'force-dynamic';// Split into a child so we can wrap only the app with <Suspense>
 function AdminPromosApp() {
   // --- Hook model: holds items/stats/filters and server calls ---
   const model = useAdminPromos();
-
-  // --- Keep your existing auth guard behavior (redirect if no session) ---
-  useEffect(() => {
-    let alive = true;
-    supabase.auth.getSession().then(({ data }) => {
-      const token = data.session?.access_token || "";
-      if (!token && alive) window.location.href = "/admin/login";
-    });
-    return () => { alive = false; };
-  }, []);
 
   // --- Local-only UI state (unchanged) ---
   const [openId, setOpenId] = useState<string | number | null>(null);

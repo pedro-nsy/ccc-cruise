@@ -11,7 +11,6 @@ export default function ListTable({
   onToggleStatus,
   onOpenDetails,
   total,
-  filtersNode,
 }: {
   items: Array<{
     id: string | number;
@@ -27,7 +26,6 @@ export default function ListTable({
   onToggleStatus: (id: string | number, to: "active" | "archived") => void;
   onOpenDetails: (row: any) => void;
   total: number;
-  filtersNode?: React.ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -91,7 +89,6 @@ export default function ListTable({
 
   return (
     <section className="rounded-2xl border bg-white p-6 text-[13px] md:text-sm text-neutral-700">
-      {filtersNode ? <div className="mb-4">{filtersNode}</div> : null}
       {/* Header: 4 cols on mobile, 6 cols on md+ */}
       <div className="grid grid-cols-4 md:grid-cols-6 rounded-xl bg-neutral-50 border border-neutral-200 text-xs font-medium text-neutral-600">
         <div className="text-center px-2 py-1.5"><Th label="Code" col="code" /></div>

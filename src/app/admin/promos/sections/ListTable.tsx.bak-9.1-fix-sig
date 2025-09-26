@@ -4,16 +4,12 @@ import { TypeChip, StatusChip } from "./chips";
 
 type SortKey = "created" | "code" | "type" | "status" | "assigned";
 
-export default function ListTable({
-  items,
+export default function ListTable({ items,
   loading,
   onCopy,
   onToggleStatus,
   onOpenDetails,
-  total,
-  filtersNode,
-}: {
-  items: Array<{
+  total,, filtersNode }: { items: Array<{
     id: string | number;
     code: string;
     type: "early_bird" | "artist" | "staff";
@@ -26,9 +22,7 @@ export default function ListTable({
   onCopy: (code: string) => void;
   onToggleStatus: (id: string | number, to: "active" | "archived") => void;
   onOpenDetails: (row: any) => void;
-  total: number;
-  filtersNode?: React.ReactNode;
-}) {
+  total: number;, filtersNode?: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();

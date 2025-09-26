@@ -166,17 +166,6 @@ function AdminPromosApp() {
           setUsed={(v)=>model.setFilters({ used: v as any })}
           onSearch={onSearch}
         />}
-                filtersNode={<FiltersBar embedded
-          q={model.filters.q}
-          type={model.filters.type}
-          status={model.filters.status}
-          used={model.filters.used}
-          setQ={(v)=>model.setFilters({ q: v })}
-          setType={(v)=>model.setFilters({ type: v as any })}
-          setStatus={(v)=>model.setFilters({ status: v as any })}
-          setUsed={(v)=>model.setFilters({ used: v as any })}
-          onSearch={onSearch}
-        />}
         items={filtered}
         loading={model.loading}
         onCopy={copyCode}
