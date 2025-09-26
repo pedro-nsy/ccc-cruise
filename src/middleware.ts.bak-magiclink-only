@@ -31,29 +31,42 @@ function hasBearer(req: NextRequest) {
 }
 
 export function middleware(req: NextRequest) {
+
   const { nextUrl } = req;
   const p = nextUrl.pathname;
 
   const isAdminPage = p.startsWith("/admin/");
   const isAdminApi  = p.startsWith("/api/admin/");
 
-  // Non-admin paths: passthrough
   if (!isAdminPage && !isAdminApi) {
     return NextResponse.next();
   }
 
-  // Admin API: require Bearer (magic link)
+  // Public exceptions for pages
+  if (isAdminPage && isPublicAdminPath(nextUrl)) {
+    return NextResponse.next();
+  }
+
+  // Auth checks
+  const cookieOk = hasAdminCookie(req);
+  const bearerOk = hasBearer(req); // APIs also accept magic-link token
+
   if (isAdminApi) {
-    if (hasBearer(req)) return NextResponse.next();
+    if (cookieOk || bearerOk) return NextResponse.next();
     // API: respond 401 JSON
     return new NextResponse(JSON.stringify({ ok:false, error:"UNAUTHORIZED" }), {
       status: 401,
       headers: { "content-type": "application/json" },
     });
+  } else {
+    // Admin page: require cookie
+    if (cookieOk) return NextResponse.next();
+    // Redirect to password gate
+    const url = req.nextUrl.clone();
+    url.pathname = "/admin/password";
+    url.search = ""; // drop query on redirect
+    return NextResponse.redirect(url);
   }
-
-  // Admin pages: no password/cookie gate; render freely
-  return NextResponse.next();
 }
 
 // Limit middleware to these paths for performance
