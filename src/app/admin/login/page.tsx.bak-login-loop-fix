@@ -1,5 +1,6 @@
 "use client";
-import { useState, useMemo, Suspense } from "react";
+import { Suspense } from "react";
+import { useState, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams } from "next/navigation";
 
@@ -14,20 +15,11 @@ function LoginInner() {
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState("");
 
-  // Sanitize next: allow only internal admin pages; avoid /admin/login to prevent nesting
+  // Validate next: only allow internal /admin/... paths
   const nextPath = useMemo(() => {
     const raw = (sp?.get("next") || "").trim();
-    try {
-      // Decode once so we recognize already-encoded values
-      const decoded = raw ? decodeURIComponent(raw) : "";
-      const candidate = decoded || "/admin/promos";
-      if (candidate.startsWith("/admin/") && !candidate.startsWith("/admin/login")) {
-        return candidate;
-      }
-      return "/admin/promos";
-    } catch {
-      return "/admin/promos";
-    }
+    if (raw && raw.startsWith("/admin/")) return raw;
+    return "/admin/promos";
   }, [sp]);
 
   async function sendLink(e: React.FormEvent) {
@@ -73,6 +65,7 @@ function LoginInner() {
     </main>
   );
 }
+
 
 export default function AdminLoginPage() {
   return (

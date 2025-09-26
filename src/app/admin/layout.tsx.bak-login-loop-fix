@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-function AdminGate({ children }: { children: ReactNode }) {
+function AdminGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -17,15 +17,8 @@ function AdminGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     let on = true;
     (async () => {
-      // Never redirect the login page itself (prevents /admin/login?next=/admin/login recursion)
-      if (pathname === "/admin/login") {
-        setReady(true);
-        return;
-      }
-
       const { data } = await supabase.auth.getSession();
       if (!on) return;
-
       const hasSession = !!data.session;
       if (!hasSession) {
         const next = pathname + (sp && sp.toString() ? `?${sp.toString()}` : "");
@@ -37,11 +30,13 @@ function AdminGate({ children }: { children: ReactNode }) {
     return () => { on = false; };
   }, [pathname, sp, router]);
 
-  if (!ready) return null;
+  if (!ready) return null; // or a small spinner if you prefer
+
   return <>{children}</>;
 }
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <Suspense fallback={null}>
       <AdminGate>{children}</AdminGate>

@@ -1,4 +1,72 @@
-"use client";
+const fs = require("fs");
+const path = require("path");
+
+function backupWrite(file, content, tag){
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const bak = file + ".bak-" + tag;
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+/* --- A) admin layout: never redirect /admin/login; only redirect other /admin/* when signed-out --- */
+const layoutFile = path.join("src","app","admin","layout.tsx");
+const layoutContent = `"use client";
+import { ReactNode, useEffect, useState, Suspense } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+function AdminGate({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      // Never redirect the login page itself (prevents /admin/login?next=/admin/login recursion)
+      if (pathname === "/admin/login") {
+        setReady(true);
+        return;
+      }
+
+      const { data } = await supabase.auth.getSession();
+      if (!on) return;
+
+      const hasSession = !!data.session;
+      if (!hasSession) {
+        const next = pathname + (sp && sp.toString() ? \`?\${sp.toString()}\` : "");
+        router.replace(\`/admin/login?next=\${encodeURIComponent(next)}\`);
+      } else {
+        setReady(true);
+      }
+    })();
+    return () => { on = false; };
+  }, [pathname, sp, router]);
+
+  if (!ready) return null;
+  return <>{children}</>;
+}
+
+export default function AdminLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={null}>
+      <AdminGate>{children}</AdminGate>
+    </Suspense>
+  );
+}
+`;
+
+/* --- B) admin login: sanitize next; if missing or points to /admin/login, default to /admin/promos --- */
+const loginFile = path.join("src","app","admin","login","page.tsx");
+const loginContent = `"use client";
 import { useState, useMemo, Suspense } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams } from "next/navigation";
@@ -81,3 +149,7 @@ export default function AdminLoginPage() {
     </Suspense>
   );
 }
+`;
+
+backupWrite(layoutFile, layoutContent, "login-loop-fix");
+backupWrite(loginFile, loginContent, "login-loop-fix");
