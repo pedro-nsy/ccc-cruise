@@ -27,7 +27,7 @@ function hasAdminCookie(req: NextRequest) {
 
 function hasBearer(req: NextRequest) {
   const h = req.headers.get("authorization") || "";
-  return /^Bearer\s+.+/i.test(h);
+  return /^Bearers+.+/i.test(h);
 }
 
 export function middleware(req: NextRequest) {
