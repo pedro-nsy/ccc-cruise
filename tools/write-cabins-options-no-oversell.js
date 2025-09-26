@@ -1,4 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+const fs = require("fs");
+const path = require("path");
+
+const FILE = path.join("src","app","api","booking","cabins","options","route.ts");
+const BAK  = FILE + ".bak-no-oversell-fix";
+
+const content = `import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 
 type CategoryKey = "INTERIOR" | "OCEANVIEW" | "BALCONY";
@@ -105,10 +111,10 @@ export async function GET(req: NextRequest) {
 
     const priceMap = new Map<string, number>();
     for (const r of prices ?? []) {
-      priceMap.set(`${r.category}|${r.occupancy}`, r.price_cents);
+      priceMap.set(\`\${r.category}|\${r.occupancy}\`, r.price_cents);
     }
     function pp(category: CategoryKey, occ: "DOUBLE"|"TRIPLE"|"QUADRUPLE") {
-      return priceMap.get(`${category}|${occ}`) ?? 0;
+      return priceMap.get(\`\${category}|\${occ}\`) ?? 0;
     }
 
     // Promo caps remaining per category
@@ -247,7 +253,7 @@ export async function GET(req: NextRequest) {
         key: cat,
         label: LABELS[cat],
         fromCents,
-        fromLabel: `${fmtMXN(fromCents)} pp (double)`,
+        fromLabel: \`\${fmtMXN(fromCents)} pp (double)\`,
         hasStaff, hasArtist, hasEb,
         artistRemaining: Number(capRem.artist.get(cat) ?? 0),
         ebRemaining: Number(capRem.early_bird.get(cat) ?? 0),
@@ -261,3 +267,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok:false, error: err?.message || "Server error" }, { status:500 });
   }
 }
+`;
+
+if (!fs.existsSync(path.dirname(FILE))) {
+  fs.mkdirSync(path.dirname(FILE), { recursive: true });
+}
+if (fs.existsSync(FILE) && !fs.existsSync(BAK)) {
+  fs.copyFileSync(FILE, BAK);
+}
+fs.writeFileSync(FILE, content, "utf8");
+console.log("✓ Wrote", FILE, "Backup:", fs.existsSync(BAK) ? BAK : "(none)");

@@ -1,4 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+const fs = require("fs");
+const path = require("path");
+
+const FILE = path.join("src","app","api","booking","cabins","options","route.ts");
+const BAK  = FILE + ".bak-step2-no-oversell";
+
+if (!fs.existsSync(path.dirname(FILE))) fs.mkdirSync(path.dirname(FILE), { recursive: true });
+if (fs.existsSync(FILE) && !fs.existsSync(BAK)) fs.copyFileSync(FILE, BAK);
+
+// New content:
+const content = `import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 
 type CategoryKey = "INTERIOR" | "OCEANVIEW" | "BALCONY";
@@ -6,8 +16,6 @@ type Supports = { double: boolean; triple: boolean; quad: boolean };
 type CabinConfig = Record<CategoryKey, { supports: Supports }>;
 type CabinInventory = Record<CategoryKey, { total: number; double_only: number; flex: number }>;
 type Layout = { doubles: number; triples: number; quads: number; cabins: number; seats: number };
-
-const CAPACITY_STATUSES = ["DEPOSIT_CONFIRMED","ON_HOLD"] as const;
 
 const LABELS: Record<CategoryKey,string> = {
   INTERIOR: "Interior",
@@ -42,11 +50,19 @@ function* generateLayouts(N: number, supports: Supports): Generator<Layout> {
   }
 }
 
-function feasibleBasic(layout: Layout, sup: Supports, adults: number) {
+function staticFeasible(layout: Layout, inv: CabinInventory[CategoryKey], sup: Supports, adults: number) {
   if (layout.triples > 0 && !sup.triple) return false;
   if (layout.quads   > 0 && !sup.quad)   return false;
   if (layout.doubles > 0 && !sup.double) return false;
-  if (adults < layout.cabins) return false; // at least one adult per cabin (cheap guard)
+  if (adults < layout.cabins) return false;
+
+  // Static ship constraints (no live usage here)
+  const usedFlex = layout.triples + layout.quads;
+  if (usedFlex > inv.flex) return false;
+  const maxDoubles = inv.double_only + (inv.flex - usedFlex);
+  if (layout.doubles > maxDoubles) return false;
+  if (layout.cabins > inv.total) return false;
+
   return true;
 }
 
@@ -57,18 +73,18 @@ export async function GET(req: NextRequest) {
 
     const supabase = supabaseServer();
 
-    // Lead: group size + adult count
-    const { data: lead, error: leadErr } = await supabase
+    // Lead
+    const { data: lead } = await supabase
       .from("leads")
       .select("booking_ref, adults, minors")
       .eq("booking_ref", ref)
       .single();
-    if (leadErr || !lead) return NextResponse.json({ ok:false, error:"LEAD_NOT_FOUND" }, { status:404 });
+    if (!lead) return NextResponse.json({ ok:false, error:"LEAD_NOT_FOUND" }, { status:404 });
 
     const groupSize = (lead.adults ?? 0) + (lead.minors ?? 0);
     const adults = lead.adults ?? 0;
 
-    // Travelers -> promo mix
+    // Travelers -> promo counts
     const { data: travelers } = await supabase
       .from("travelers")
       .select("promo_code_id")
@@ -89,33 +105,27 @@ export async function GET(req: NextRequest) {
     }
     const hasStaff = staffCount>0, hasArtist = artistCount>0, hasEb = ebCount>0;
 
-    // Settings: config + inventory
+    // settings
     const { data: cfgRow } = await supabase
       .from("settings").select("value").eq("key","cabin_config").single();
     const { data: invRow } = await supabase
       .from("settings").select("value").eq("key","cabin_inventory").single();
-
     const CONFIG = (cfgRow?.value ?? {}) as CabinConfig;
     const INVENTORY = (invRow?.value ?? {}) as CabinInventory;
 
-    // Prices (public pp)
+    // prices
     const { data: prices } = await supabase
       .from("current_public_prices")
       .select("category, occupancy, price_cents");
-
     const priceMap = new Map<string, number>();
-    for (const r of prices ?? []) {
-      priceMap.set(`${r.category}|${r.occupancy}`, r.price_cents);
-    }
-    function pp(category: CategoryKey, occ: "DOUBLE"|"TRIPLE"|"QUADRUPLE") {
-      return priceMap.get(`${category}|${occ}`) ?? 0;
-    }
+    for (const r of prices ?? []) priceMap.set(\`\${r.category}|\${r.occupancy}\`, r.price_cents);
+    const pp = (category: CategoryKey, occ: "DOUBLE"|"TRIPLE"|"QUADRUPLE") =>
+      priceMap.get(\`\${category}|\${occ}\`) ?? 0;
 
-    // Promo caps remaining per category
+    // promo caps (per category)
     const { data: caps } = await supabase
       .from("promo_caps_remaining_by_category")
       .select("type, category, remaining");
-
     const capRem = { artist: new Map<CategoryKey|"null",number>(), early_bird: new Map<CategoryKey|"null",number>() };
     for (const c of caps ?? []) {
       const key = (c.category ?? "null") as any;
@@ -123,72 +133,66 @@ export async function GET(req: NextRequest) {
       if (c.type === "early_bird") capRem.early_bird.set(key, Number(c.remaining ?? 0));
     }
 
-    // LIVE USAGE from confirmed/hold bookings: how many cabins already in use per category & occupancy
-    // We don't have occupancy on bookings, so we count in 'cabins' and join to bookings for status.
+    // ---- NEW: live usage from CONFIRMED bookings
     const { data: usedRows, error: usedErr } = await supabase
       .from("cabins")
       .select("category, occupancy, bookings!inner(status)")
-      .in("bookings.status", CAPACITY_STATUSES as any);
+      .eq("bookings.status", "CONFIRMED");
     if (usedErr) return NextResponse.json({ ok:false, error: usedErr.message }, { status:500 });
 
-    const usedByCat = new Map<CategoryKey, { doubles:number; triples:number; quads:number; totalCabins:number }>();
-    const cats: CategoryKey[] = ["INTERIOR","OCEANVIEW","BALCONY"];
-    for (const c of cats) usedByCat.set(c, { doubles:0, triples:0, quads:0, totalCabins:0 });
-
+    type UsedAgg = Record<CategoryKey, { doubles: number; triples: number; quads: number }>;
+    const used: UsedAgg = {
+      INTERIOR: { doubles:0, triples:0, quads:0 },
+      OCEANVIEW:{ doubles:0, triples:0, quads:0 },
+      BALCONY:  { doubles:0, triples:0, quads:0 },
+    };
     for (const row of usedRows ?? []) {
-      const cat = (row.category || "") as CategoryKey;
-      const occ = (row.occupancy || "").toString().toUpperCase();
-      const bucket = usedByCat.get(cat);
-      if (!bucket) continue;
-      if (occ === "DOUBLE") bucket.doubles += 1;
-      else if (occ === "TRIPLE") bucket.triples += 1;
-      else if (occ === "QUADRUPLE") bucket.quads += 1;
-      bucket.totalCabins += 1;
+      const cat = (row as any).category as CategoryKey;
+      const occ = Number((row as any).occupancy);
+      if (!used[cat]) continue;
+      if (occ === 2) used[cat].doubles++;
+      else if (occ === 3) used[cat].triples++;
+      else if (occ === 4) used[cat].quads++;
+    }
+
+    function remainingFor(cat: CategoryKey) {
+      const inv = INVENTORY[cat] ?? { total:999, double_only:999, flex:999 };
+      const u = used[cat] ?? { doubles:0, triples:0, quads:0 };
+      const usedTotal = u.doubles + u.triples + u.quads;
+
+      // Doubles first fill double_only, overflow into flex; triples/quads always flex
+      const usedDoubleOnly = Math.min(u.doubles, inv.double_only);
+      const usedFlexFromDoubles = Math.max(0, u.doubles - inv.double_only);
+      const usedFlex = u.triples + u.quads + usedFlexFromDoubles;
+
+      return {
+        totalRem: Math.max(0, inv.total - usedTotal),
+        doubleOnlyRem: Math.max(0, inv.double_only - usedDoubleOnly),
+        flexRem: Math.max(0, inv.flex - usedFlex),
+      };
+    }
+
+    function fitsLiveRemaining(cat: CategoryKey, layout: Layout) {
+      const rem = remainingFor(cat);
+
+      // Flex needed by layout: triples+quads plus doubles that overflow past doubleOnlyRem
+      const flexNeeded = layout.triples + layout.quads + Math.max(0, layout.doubles - rem.doubleOnlyRem);
+
+      // Doubles overall must not exceed doubleOnlyRem + flexRem
+      const doublesPossible = rem.doubleOnlyRem + rem.flexRem;
+
+      if (layout.doubles > doublesPossible) return false;
+      if (flexNeeded > rem.flexRem) return false;
+      if (layout.cabins > rem.totalRem) return false;
+      return true;
     }
 
     function publicTotalCents(category: CategoryKey, layout: Layout) {
-      return layout.doubles * pp(category,"DOUBLE")
-           + layout.triples * pp(category,"TRIPLE")
-           + layout.quads   * pp(category,"QUADRUPLE");
-    }
-
-    // Check if a layout can fit given remaining ship capacity for that category
-    function fitsRemaining(category: CategoryKey, layout: Layout): boolean {
-      const inv = INVENTORY[category];
-      if (!inv) return true; // be permissive if no inventory
-
-      const used = usedByCat.get(category) || { doubles:0, triples:0, quads:0, totalCabins:0 };
-
-      // Current consumption
-      let flexUsed = used.triples + used.quads; // triples/quads must come from flex
-      let doubleOnlyUsed = used.doubles;        // doubles consume double_only first
-      let totalUsed = used.totalCabins;
-
-      // Add the candidate layout demand
-      const addTriples = layout.triples;
-      const addQuads   = layout.quads;
-      const addDoubles = layout.doubles;
-
-      // Triples/quads always consume flex
-      flexUsed += addTriples + addQuads;
-
-      // Doubles: consume remaining double_only first, then flex
-      const doubleOnlyRem = inv.double_only - doubleOnlyUsed;
-      const fromDoubleOnly = Math.max(0, Math.min(addDoubles, doubleOnlyRem));
-      const spillToFlex = addDoubles - fromDoubleOnly;
-
-      doubleOnlyUsed += fromDoubleOnly;
-      flexUsed += Math.max(0, spillToFlex);
-
-      // Total cabins
-      totalUsed += layout.cabins;
-
-      // Compute remaining vs inventory
-      const flexRem = inv.flex - flexUsed;
-      const doubleOnlyRemAfter = inv.double_only - doubleOnlyUsed;
-      const totalRem = inv.total - totalUsed;
-
-      return flexRem >= 0 && doubleOnlyRemAfter >= 0 && totalRem >= 0;
+      const total =
+        layout.doubles   * pp(category, "DOUBLE") +
+        layout.triples   * pp(category, "TRIPLE") +
+        layout.quads     * pp(category, "QUADRUPLE");
+      return total;
     }
 
     const categories: CategoryKey[] = ["INTERIOR","OCEANVIEW","BALCONY"];
@@ -198,66 +202,69 @@ export async function GET(req: NextRequest) {
       const supports = CONFIG[cat]?.supports ?? { double:true, triple:true, quad:true };
       const inv = INVENTORY[cat] ?? { total:999, double_only:999, flex:999 };
 
-      // Promo strict gating per your rule
+      // Promo caps gating (strict)
       const needArtist = artistCount;
       const needEb = ebCount;
       const remArtist = Number(capRem.artist.get(cat) ?? Infinity);
       const remEb = Number(capRem.early_bird.get(cat) ?? Infinity);
-
       let disabledReason: string | null = null;
       if (needArtist > remArtist || needEb > remEb) {
         disabledReason = "Not available with your promo codes right now.";
       }
 
-      // Generate feasible layouts (basic rules first)
-      const layoutsAll: Array<{ layout: Layout; totalCents: number }> = [];
+      // From price
+      const fromCents = pp(cat,"DOUBLE");
+
+      // Generate + filter layouts by static feasibility
+      const staticLayouts: Layout[] = [];
       for (const L of generateLayouts(groupSize, supports)) {
-        if (!feasibleBasic(L, supports, adults)) continue;
-        layoutsAll.push({ layout: L, totalCents: publicTotalCents(cat, L) });
+        if (staticFeasible(L, inv, supports, adults)) staticLayouts.push(L);
       }
 
-      // If not disabled by promos, filter by live remaining capacity (no oversell)
-      let layouts = layoutsAll;
-      if (!disabledReason) {
-        layouts = layoutsAll.filter(x => fitsRemaining(cat, x.layout));
-        if (layouts.length === 0) {
-          disabledReason = "Not available — ship capacity for this category is fully used.";
-        }
-      }
-
-      // Rank: fewest cabins -> cheapest public total
-      layouts.sort((a,b)=>{
-        if (a.layout.cabins !== b.layout.cabins) return a.layout.cabins - b.layout.cabins;
-        return a.totalCents - b.totalCents;
+      // NEW: filter by live remaining (no oversell). Then rank.
+      const liveOK = staticLayouts.filter(L => fitsLiveRemaining(cat, L));
+      liveOK.sort((a,b)=>{
+        if (a.cabins !== b.cabins) return a.cabins - b.cabins;
+        return publicTotalCents(cat, a) - publicTotalCents(cat, b); // ranking by PUBLIC only (per your decision)
       });
 
-      const top = layouts.slice(0,3).map((x, i)=>({
-        doubles: x.layout.doubles,
-        triples: x.layout.triples,
-        quads:   x.layout.quads,
-        cabins:  x.layout.cabins,
-        seats:   x.layout.seats,
-        totalCents: x.totalCents,
-        totalLabel: fmtMXN(x.totalCents),
+      const top = liveOK.slice(0,3).map((x, i)=>({
+        doubles: x.doubles,
+        triples: x.triples,
+        quads:   x.quads,
+        cabins:  x.cabins,
+        seats:   x.seats,
+        totalCents: publicTotalCents(cat, x),
+        totalLabel: fmtMXN(publicTotalCents(cat, x)),
         recommended: i===0,
       }));
 
-      const fromCents = pp(cat,"DOUBLE");
+      // If no live-feasible layouts remain, hard-disable by capacity
+      if (!disabledReason && top.length === 0) {
+        disabledReason = "Not available — this category is at capacity.";
+      }
+
+      // Per-category promo remaining for chips (UI will show only if hasArtist/hasEb)
+      const artistRemaining = Number(capRem.artist.get(cat) ?? 0);
+      const ebRemaining = Number(capRem.early_bird.get(cat) ?? 0);
+
       out.push({
         key: cat,
         label: LABELS[cat],
         fromCents,
-        fromLabel: `${fmtMXN(fromCents)} pp (double)`,
+        fromLabel: \`\${fmtMXN(fromCents)} pp (double)\`,
         hasStaff, hasArtist, hasEb,
-        artistRemaining: Number(capRem.artist.get(cat) ?? 0),
-        ebRemaining: Number(capRem.early_bird.get(cat) ?? 0),
+        artistRemaining, ebRemaining,
         disabledReason,
         layouts: top,
       });
     }
 
     return NextResponse.json({ ok:true, groupSize, adults, categories: out }, { status:200 });
-  } catch (err:any) {
+  } catch (err: any) {
     return NextResponse.json({ ok:false, error: err?.message || "Server error" }, { status:500 });
   }
 }
+`;
+fs.writeFileSync(FILE, content, "utf8");
+console.log("✓ Wrote", FILE, "Backup:", fs.existsSync(BAK) ? BAK : "(none)");
