@@ -40,7 +40,7 @@ function AdminPromosApp() {
     catch { toast.error("Couldn’t copy"); }
   };
 
-  const toggleStatus = async (id: string|number, to: "active"|"archived") => {
+  const toggleStatus = async (id: string|number, to: "active"|"disabled") => {
     const res = await model.toggleStatus(id, to);
     if (res.ok) {
       const target = (to === "active" ? "active" : "archived");
@@ -191,7 +191,7 @@ function AdminPromosApp() {
           row={openRow}
           usage={usage}
           usageLoading={usageLoading}
-          onClose={closeDetails} onToggleStatus={(id,to)=>toggleStatus(id, to==="archived" ? "archived" : "active")} onCopyCode={copyCode}
+          onClose={closeDetails} onToggleStatus={(id,to)=>toggleStatus(id, to==="archived" ? "disabled" : "active")} onCopyCode={copyCode}
          />
       )}
     </main>

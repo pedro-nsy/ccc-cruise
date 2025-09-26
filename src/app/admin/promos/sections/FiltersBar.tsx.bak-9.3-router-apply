@@ -1,27 +1,15 @@
-"use client";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+// NOTE: client boundary comes from parent page; no directive needed here.
 import { useEffect, useState } from "react";
 
-type Props = {
-  q: string;
-  type: "" | "early_bird" | "artist" | "staff";
-  status: "" | "active" | "archived" | "reserved" | "consumed";
-  used: "" | "yes" | "no";
-  setQ: (v: string)=>void;
-  setType: (v: "" | "early_bird" | "artist" | "staff")=>void;
-  setStatus: (v: "" | "active" | "archived" | "reserved" | "consumed")=>void;
-  setUsed: (v: "" | "yes" | "no")=>void;
-  onSearch: () => void;         // accepted for compatibility; not used
-  embedded?: boolean;           // accepted for compatibility; not used
-};
-
-export default function FiltersBar(props: Props) {
-  const { q, type, status, used } = props; // we rely on URL as source of truth; setters not needed here
-
-  const router = useRouter();
-  const pathname = usePathname();
-  const sp = useSearchParams();
-
+export default function FiltersBar({
+  q, type, status, used,
+  setQ, setType, setStatus, setUsed,
+  onSearch
+}: {
+  q: string; type: string; status: string; used: string;
+  setQ: (v: string)=>void; setType: (v: string)=>void; setStatus: (v: string)=>void; setUsed: (v: string)=>void;
+  onSearch: () => void;
+}) {
   // --- draft state: nothing applies until Search/Enter ---
   const [qDraft, setQDraft] = useState(q);
   const [typeDraft, setTypeDraft] = useState(type);
@@ -34,31 +22,19 @@ export default function FiltersBar(props: Props) {
   useEffect(() => { setStatusDraft(status); }, [status]);
   useEffect(() => { setUsedDraft(used); }, [used]);
 
-  function buildUrlFromDrafts() {
-    const url = new URL(window.location.origin + pathname + "?" + sp.toString());
-    const setParam = (k: string, v: string) => {
-      if (v && v !== "all" && v !== "") url.searchParams.set(k, v);
-      else url.searchParams.delete(k);
-    };
-    setParam("q", (qDraft || "").trim());
-    setParam("type", typeDraft || "");
-    setParam("status", statusDraft || "");
-    setParam("used", usedDraft || "");
-    url.searchParams.set("page", "1");
-    return url;
-  }
-
   function apply() {
-    const url = buildUrlFromDrafts();
-    router.replace(url.toString(), { scroll: false });
+    setQ(qDraft);
+    setType(typeDraft);
+    setStatus(statusDraft);
+    setUsed(usedDraft);
+    onSearch();
   }
 
-  function clearAll(e?: any) {
+  function clearAll(e?: React.MouseEvent) {
     if (e) e.preventDefault();
     setQDraft(""); setTypeDraft(""); setStatusDraft(""); setUsedDraft("");
-    const url = new URL(window.location.origin + pathname);
-    url.searchParams.set("page", "1");
-    router.replace(url.toString(), { scroll: false });
+    setQ(""); setType(""); setStatus(""); setUsed("");
+    onSearch();
   }
 
   return (
@@ -70,12 +46,12 @@ export default function FiltersBar(props: Props) {
             placeholder="Search code or name…"
             value={qDraft}
             onChange={e => setQDraft(e.target.value)}
-            onKeyDown={e => { if ((e as any).key === "Enter") apply(); }}
+            onKeyDown={e => { if (e.key === 'Enter') apply(); }}
           />
           <select
             className="rounded-xl border border-neutral-300 px-2.5 py-1.5 text-sm"
             value={typeDraft}
-            onChange={e => setTypeDraft((e.target as HTMLSelectElement).value as Props["type"])}
+            onChange={e => setTypeDraft(e.target.value)}
           >
             <option value="">All types</option>
             <option value="early_bird">Early Bird</option>
@@ -85,7 +61,7 @@ export default function FiltersBar(props: Props) {
           <select
             className="rounded-xl border border-neutral-300 px-2.5 py-1.5 text-sm"
             value={statusDraft}
-            onChange={e => setStatusDraft((e.target as HTMLSelectElement).value as Props["status"])}
+            onChange={e => setStatusDraft(e.target.value)}
           >
             <option value="">All statuses</option>
             <option value="active">Active</option>
@@ -96,7 +72,7 @@ export default function FiltersBar(props: Props) {
           <select
             className="rounded-xl border border-neutral-300 px-2.5 py-1.5 text-sm"
             value={usedDraft}
-            onChange={e => setUsedDraft((e.target as HTMLSelectElement).value as Props["used"])}
+            onChange={e => setUsedDraft(e.target.value)}
           >
             <option value="">Used (all)</option>
             <option value="yes">Yes</option>

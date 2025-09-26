@@ -1,4 +1,17 @@
-"use client";
+const fs = require("fs");
+const path = require("path");
+
+const FILE = path.join("src","app","admin","promos","sections","FiltersBar.tsx");
+const BAK  = FILE + ".bak-rewrite";
+
+function backupWrite(file, content, tagFile){
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (fs.existsSync(file) && !fs.existsSync(tagFile)) fs.copyFileSync(file, tagFile);
+  fs.writeFileSync(file, content, "utf8");
+}
+
+const content = `\"use client\";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -112,3 +125,7 @@ export default function FiltersBar(props: Props) {
     </div>
   );
 }
+`;
+
+backupWrite(FILE, content, BAK);
+console.log("✓ Wrote", FILE, "Backup:", fs.existsSync(BAK) ? BAK : "(none)");
