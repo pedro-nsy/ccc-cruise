@@ -1,0 +1,218 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+type CatKey = "INTERIOR" | "OCEANVIEW" | "BALCONY";
+type LayoutRow = { doubles:number; triples:number; quads:number; cabins:number; seats:number; totalCents:number; totalLabel:string; recommended:boolean; };
+type CategoryBlock = {
+  key: CatKey;
+  label: string;
+  fromCents: number;
+  fromLabel: string; // "MXN 28,800 pp (double)"
+  hasStaff: boolean;
+  hasArtist: boolean;
+  hasEb: boolean;
+  disabledReason: string | null;
+  layouts: LayoutRow[];
+};
+
+function fmt(n:number){ return n.toLocaleString("en-US"); }
+
+export default function CabinsPage(){
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [cats, setCats] = useState<CategoryBlock[]>([]);
+  const [selectedCat, setSelectedCat] = useState<CatKey | null>(null);
+  const [selectedLayout, setSelectedLayout] = useState<LayoutRow | null>(null);
+  const [hasStaff, setHasStaff] = useState(false);
+  const [hasArtist, setHasArtist] = useState(false);
+  const [hasEb, setHasEb] = useState(false);
+
+  // guard + load
+  useEffect(()=>{
+    (async ()=>{
+      const has = await fetch("/api/booking/has-ref");
+      if (has.status === 401){ router.replace("/booking/start"); return; }
+
+      const res = await fetch("/api/booking/cabins/options", { cache: "no-store" });
+      if (!res.ok){ setLoading(false); return; }
+      const data = await res.json();
+      const list: CategoryBlock[] = data.categories || [];
+      setCats(list);
+      setHasStaff(!!list.find(c=>c.hasStaff)?.hasStaff);
+      setHasArtist(!!list.find(c=>c.hasArtist)?.hasArtist);
+      setHasEb(!!list.find(c=>c.hasEb)?.hasEb);
+
+      // preselect first available category
+      const first = list.find(c=>!c.disabledReason);
+      setSelectedCat(first ? first.key : null);
+      setSelectedLayout(null);
+      setLoading(false);
+    })();
+  },[router]);
+
+  const chipLine = useMemo(()=>{
+    const chips: string[] = [];
+    if (hasArtist) chips.push("Artist code applied");
+    if (hasEb) chips.push("Early Bird code applied");
+    if (hasStaff) chips.push("CCC Staff code applied");
+    return chips.join(" · ");
+  },[hasArtist,hasEb,hasStaff]);
+
+  function onPickCat(c: CatKey){
+    setSelectedCat(c);
+    setSelectedLayout(null);
+  }
+
+  async function onContinue(e: React.FormEvent){
+    e.preventDefault();
+    if (!selectedCat || !selectedLayout) return;
+
+    // mirror to localStorage for the existing Assign editor
+    try {
+      const draft = JSON.parse(localStorage.getItem("ccc-draft") || "{}");
+      const layout = {
+        doubles: selectedLayout.doubles,
+        triples: selectedLayout.triples,
+        quads: selectedLayout.quads,
+        cabins: selectedLayout.cabins,
+      };
+      const next = { ...draft, cabins: { category: selectedCat, layout } };
+      localStorage.setItem("ccc-draft", JSON.stringify(next));
+    } catch {}
+
+    const payload = {
+      category: selectedCat,
+      layout: {
+        doubles: selectedLayout.doubles,
+        triples: selectedLayout.triples,
+        quads: selectedLayout.quads,
+        cabins: selectedLayout.cabins,
+      }
+    };
+    const res = await fetch("/api/booking/cabins/select", {
+      method: "POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok){ return; }
+    router.push("/booking/cabins/assign");
+  }
+
+  if (loading){
+    return <div className="mx-auto max-w-xl rounded-2xl border bg-white p-6 text-center text-neutral-500">Loading …</div>;
+  }
+
+  return (
+    <form onSubmit={onContinue} className="mx-auto max-w-xl sm:max-w-2xl space-y-8">
+      <header className="text-center space-y-3">
+        <h1 className="text-2xl md:text-3xl font-semibold">Choose your cabin category</h1>
+        <p className="text-neutral-700">
+          We’ll only show layouts that make sense for your group size and ensure there’s at least one adult per cabin.
+        </p>
+        <p className="text-neutral-600 text-sm">
+          Prices are per person. Final pricing is confirmed on the review step.
+        </p>
+      </header>
+
+      {/* Category list */}
+      <section className="space-y-3">
+        {cats.map(cat=>{
+          const active = selectedCat === cat.key;
+          const disabled = !!cat.disabledReason;
+
+          return (
+            <div key={cat.key}
+              className={`rounded-2xl border bg-white p-5 data-[active=true]:ring-2 data-[active=true]:ring-blue-100 ${disabled?"opacity-60" : "hover:border-neutral-300"}`}
+              data-active={active}
+            >
+              <label className="flex items-start gap-3">
+                <input
+                  type="radio"
+                  name="category"
+                  className="mt-1 h-4 w-4"
+                  checked={active}
+                  disabled={disabled}
+                  onChange={()=>onPickCat(cat.key)}
+                />
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <div className="text-lg font-medium">{cat.label}</div>
+                  </div>
+                  <div className="text-sm text-neutral-600">
+                    <div className="font-medium">From {cat.fromLabel}</div>
+                    <div className="text-xs text-neutral-500">
+                      If you have a promo code, your price will be adjusted automatically and shown on the Review step.
+                    </div>
+                    {hasStaff && (
+                      <div className="text-xs text-neutral-500 mt-1">
+                        CCC Staff: Interior is free per person; choosing Ocean View or Balcony only charges the upgrade on Review.
+                      </div>
+                    )}
+                  </div>
+                  {disabled && (
+                    <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                      Not available with your promo codes right now.
+                    </div>
+                  )}
+                </div>
+              </label>
+
+              {/* Layouts for the active category */}
+              {active && !disabled && (
+                <div className="mt-4 space-y-3">
+                  <div className="text-sm text-neutral-600">Available layouts for {cat.label}</div>
+                  {cat.layouts.length === 0 && (
+                    <div className="rounded-xl border bg-neutral-50 p-4 text-sm">
+                      We couldn’t find a feasible layout. Try another category.
+                    </div>
+                  )}
+                  {cat.layouts.map((L, idx)=>{
+                    const chosen = selectedLayout && selectedLayout === L;
+                    const subtitleCabins = L.cabins === 1 ? "1 stateroom" : `${L.cabins} staterooms`;
+                    return (
+                      <label key={idx} className={`block rounded-2xl border bg-white p-4 ${chosen?"ring-2 ring-blue-100 border-blue-600":"hover:border-neutral-300"}`}>
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="radio"
+                            name="layout"
+                            className="mt-1 h-4 w-4"
+                            checked={!!chosen}
+                            onChange={()=>setSelectedLayout(L)}
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <div className="font-medium">
+                                {L.quads ? `${L.quads}× quad` : null}{L.quads && (L.triples||L.doubles)?" · ":""}
+                                {L.triples ? `${L.triples}× triple` : null}{L.triples && L.doubles?" · ":""}
+                                {L.doubles ? `${L.doubles}× double` : null}
+                              </div>
+                              {L.recommended && (
+                                <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-neutral-50">Recommended</span>
+                              )}
+                              <div className="ml-auto text-sm">Total {L.totalLabel}</div>
+                            </div>
+                            <div className="text-xs text-neutral-600 mt-1">
+                              {subtitleCabins} · you can adjust assignments on the next step.
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </section>
+
+      <div className="flex items-center justify-between">
+        <a href="/booking/travelers" className="btn btn-ghost">Back</a>
+        <button type="submit" className="btn btn-primary disabled:opacity-60" disabled={!selectedCat || !selectedLayout}>
+          Continue
+        </button>
+      </div>
+    </form>
+  );
+}

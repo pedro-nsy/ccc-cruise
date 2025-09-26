@@ -1,0 +1,282 @@
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+/** UI helpers */
+function peso(n: number) {
+  try {
+    return new Intl.NumberFormat("en-US").format(Math.round(n));
+  } catch {
+    return String(Math.round(n));
+  }
+}
+
+type PromoChip = { kind: "artist" | "early_bird"; label: string; remaining: number };
+type LayoutOption = {
+  id: string; // stable id from API
+  label: string; // e.g. "1× quad"
+  cabinsCount: number; // for the microcopy line
+  occupancies: number[]; // [4] or [3,2] etc (for POST)
+  totalMXN: number; // best-placement total
+  recommended?: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
+};
+
+type CategoryCard = {
+  key: "INTERIOR" | "OCEANVIEW" | "BALCONY";
+  label: string; // Ocean View, Interior, Balcony
+  fromPricePp: number; // public double pp price (static line)
+  disabled?: boolean;      // strict caps block
+  disabledReason?: string; // message when blocked
+  promoChips?: PromoChip[]; // only types present among travelers
+  layouts: LayoutOption[];  // already ranked (max 3)
+};
+
+type OptionsPayload = {
+  ok: boolean;
+  staffPresent?: boolean;
+  categoryCards?: CategoryCard[];
+  error?: string;
+};
+
+export default function CabinsPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [cards, setCards] = useState<CategoryCard[]>([]);
+  const [staffPresent, setStaffPresent] = useState(false);
+
+  const [selectedCat, setSelectedCat] = useState<null | CategoryCard>(null);
+  const [selectedLayoutId, setSelectedLayoutId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/booking/cabins/options", { cache: "no-store" });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d?.error || "Failed to load options");
+        }
+        const data: OptionsPayload = await res.json();
+        if (!data.ok) throw new Error(data.error || "Failed to load options");
+
+        if (alive) {
+          setCards(data.categoryCards || []);
+          setStaffPresent(!!data.staffPresent);
+          setLoading(false);
+        }
+      } catch (e: any) {
+        if (alive) {
+          setErr(e?.message || "Failed to load options");
+          setLoading(false);
+        }
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  /** reset layout selection when category changes */
+  function chooseCategory(card: CategoryCard) {
+    if (card.disabled) return; // strict: cannot select
+    setSelectedCat(card);
+    setSelectedLayoutId(null);
+  }
+
+  const canContinue = useMemo(() => {
+    return !!selectedCat && !!selectedLayoutId;
+  }, [selectedCat, selectedLayoutId]);
+
+  async function onContinue(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedCat || !selectedLayoutId) return;
+
+    // find chosen layout to send occupancies as well
+    const layout = selectedCat.layouts.find(l => l.id === selectedLayoutId);
+    if (!layout) return;
+
+    try {
+      const res = await fetch("/api/booking/cabins/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: selectedCat.key,
+          occupancies: layout.occupancies,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error || "Failed to save selection");
+      }
+
+      // mirror to localStorage for the assignment editor
+      try {
+        const draft = JSON.parse(localStorage.getItem("ccc-draft") || "{}");
+        const next = {
+          ...draft,
+          cabins: { category: selectedCat.key, layout: summarizeLayout(layout.occupancies) },
+          assignment: null, // reset — assignment editor will initialize a fresh shape
+          travelers: draft.travelers || undefined, // keep if present
+        };
+        localStorage.setItem("ccc-draft", JSON.stringify(next));
+      } catch {}
+
+      // go to assign
+      router.push("/booking/cabins/assign");
+    } catch (e: any) {
+      setErr(e?.message || "Could not save your selection");
+    }
+  }
+
+  function summarizeLayout(occ: number[]) {
+    const doubles = occ.filter(o => o === 2).length;
+    const triples = occ.filter(o => o === 3).length;
+    const quads   = occ.filter(o => o === 4).length;
+    return { doubles, triples, quads, cabins: occ.length };
+  }
+
+  if (loading) {
+    return (
+      <main className="mx-auto max-w-xl sm:max-w-2xl space-y-8 mt-8">
+        <header className="text-center space-y-3">
+          <h1 className="text-2xl md:text-3xl font-semibold">Choose your cabin category</h1>
+          <p className="text-neutral-700">We’re loading the options that fit your group.</p>
+        </header>
+        <div className="rounded-2xl border bg-white p-6 text-neutral-500">Loading …</div>
+      </main>
+    );
+  }
+
+  if (err) {
+    return (
+      <main className="mx-auto max-w-xl sm:max-w-2xl space-y-8 mt-8">
+        <header className="text-center space-y-3">
+          <h1 className="text-2xl md:text-3xl font-semibold">Choose your cabin category</h1>
+          <p className="text-neutral-700">We’ll only show layouts that make sense for your group size.</p>
+        </header>
+        <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
+          {err}
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <form onSubmit={onContinue} className="mx-auto max-w-xl sm:max-w-2xl space-y-8 mt-8">
+      {/* Header */}
+      <header className="text-center space-y-3">
+        <h1 className="text-2xl md:text-3xl font-semibold">Choose your cabin category</h1>
+        <p className="text-neutral-700">We’ll only show layouts that make sense for your group size.</p>
+        <p className="text-neutral-600 text-sm">If you have a promo code, your price will be adjusted automatically and shown on the Review step.</p>
+        {staffPresent && (
+          <p className="text-neutral-600 text-sm">Staff upgrades will be calculated automatically.</p>
+        )}
+      </header>
+
+      {/* Category list */}
+      <section className="space-y-3">
+        {cards.map((card) => {
+          const isSelected = selectedCat?.key === card.key;
+          const fromLine = "From MXN " + peso(card.fromPricePp) + " pp (double)";
+
+          return (
+            <div
+              key={card.key}
+              className={`rounded-2xl border p-5 bg-white hover:border-neutral-300 ${isSelected ? "ring-2 ring-blue-100 border-blue-600" : ""} ${card.disabled ? "opacity-60" : ""}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => chooseCategory(card)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") chooseCategory(card); }}
+              data-active={isSelected}
+            >
+              {/* Card header */}
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <div className="text-lg font-medium">{card.label}</div>
+                  <div className="text-sm text-neutral-700">{fromLine}</div>
+                </div>
+
+                {/* Promo chips (only for types present among travelers) */}
+                <div className="flex items-center gap-2">
+                  {(card.promoChips || []).map((c, i) => (
+                    <div key={i} className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-neutral-50">
+                      {c.kind === "early_bird" ? "Early Bird" : "Artist"}: {c.remaining} left
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Disabled banner (strict caps) */}
+              {card.disabled && card.disabledReason && (
+                <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                  {card.disabledReason}
+                </div>
+              )}
+
+              {/* Expanded layout list only for selected & not strictly disabled */}
+              {isSelected && !card.disabled && (
+                <div className="mt-4 space-y-3">
+                  {card.layouts.length === 0 && (
+                    <div className="rounded-xl border bg-neutral-50 p-3 text-sm">
+                      We couldn’t find a feasible layout. Try another category.
+                    </div>
+                  )}
+
+                  {card.layouts.map((lay) => {
+                    const active = selectedLayoutId === lay.id;
+                    const disabled = !!lay.disabled;
+                    return (
+                      <label
+                        key={lay.id}
+                        className={`flex items-center justify-between rounded-2xl border bg-white p-4 cursor-pointer ${active ? "ring-2 ring-blue-100 border-blue-600" : ""} ${disabled ? "opacity-60" : ""}`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="layout"
+                              className="h-4 w-4"
+                              checked={active}
+                              disabled={disabled}
+                              onChange={() => setSelectedLayoutId(lay.id)}
+                            />
+                            <div className="text-sm font-medium">{lay.label}</div>
+                            {lay.recommended && (
+                              <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-green-50 text-green-700 border-green-200">
+                                Recommended
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-neutral-600">
+                            {lay.cabinsCount} {lay.cabinsCount === 1 ? "stateroom" : "staterooms"} · you can adjust assignments on the next step.
+                          </div>
+                          {lay.disabled && lay.disabledReason && (
+                            <div className="text-xs text-red-700">{lay.disabledReason}</div>
+                          )}
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-sm text-neutral-600">Best total</div>
+                          <div className="text-base font-medium">MXN {peso(lay.totalMXN)}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </section>
+
+      {/* Actions */}
+      <div className="flex items-center justify-between">
+        <a href="/booking/travelers" className="btn btn-ghost">Back</a>
+        <button type="submit" className="btn btn-primary disabled:opacity-60" disabled={!canContinue}>
+          Continue
+        </button>
+      </div>
+    </form>
+  );
+}

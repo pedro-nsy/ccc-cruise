@@ -1,0 +1,67 @@
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase-server";
+
+type Category = "INTERIOR" | "OCEANVIEW" | "BALCONY";
+type Layout = { doubles: number; triples: number; quads: number };
+
+export async function POST(req: NextRequest) {
+  const ref = req.cookies.get("ccc_ref")?.value;
+  if (!ref) return NextResponse.json({ ok: false, error: "MISSING_REF" }, { status: 401 });
+
+  const supabase = supabaseServer();
+
+  const body = await req.json().catch(() => ({}));
+  const category = String(body?.category || "").toUpperCase() as Category;
+  const layout = body?.layout as Layout | undefined;
+
+  if (!category || !layout || [layout.doubles, layout.triples, layout.quads].some(v => v == null || v < 0)) {
+    return NextResponse.json({ ok: false, error: "INVALID_PAYLOAD" }, { status: 400 });
+  }
+
+  // load group size
+  const { data: lead, error: leadErr } = await supabase
+    .from("leads")
+    .select("adults, minors")
+    .eq("booking_ref", ref)
+    .single();
+  if (leadErr || !lead) return NextResponse.json({ ok: false, error: "LEAD_NOT_FOUND" }, { status: 404 });
+  const groupSize = Number(lead.adults ?? 0) + Number(lead.minors ?? 0);
+
+  // supports from settings.cabin_config
+  const { data: cfgRow, error: sErr } = await supabase
+    .from("settings")
+    .select("value")
+    .eq("key", "cabin_config")
+    .single();
+  if (sErr || !cfgRow?.value) return NextResponse.json({ ok: false, error: "CONFIG_MISSING" }, { status: 500 });
+
+  const supports = cfgRow.value?.[category]?.supports || {};
+  const okDouble = !!supports.double;
+  const okTriple = !!supports.triple;
+  const okQuad = !!supports.quad;
+
+  if ((!okDouble && layout.doubles > 0) || (!okTriple && layout.triples > 0) || (!okQuad && layout.quads > 0)) {
+    return NextResponse.json({ ok: false, error: "UNSUPPORTED_OCCUPANCY" }, { status: 400 });
+  }
+
+  const seats = layout.doubles * 2 + layout.triples * 3 + layout.quads * 4;
+  if (seats !== groupSize) {
+    return NextResponse.json({ ok: false, error: "SEATS_MUST_MATCH_GROUP_SIZE" }, { status: 400 });
+  }
+
+  // persist on lead
+  const { error: upErr } = await supabase
+    .from("leads")
+    .update({ cabin_category: category, cabin_layout: layout, status: "cabins_selected" })
+    .eq("booking_ref", ref);
+  if (upErr) return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });
+
+  // optional: mark promo usages with chosen category to reflect per-category pressure
+  await supabase
+    .from("promo_usages")
+    .update({ category })
+    .eq("booking_ref", ref)
+    .eq("status", "reserved"); // ignore consumed/released
+
+  return NextResponse.json({ ok: true }, { status: 200 });
+}

@@ -1,0 +1,333 @@
+/* eslint-disable @next/next/no-img-element */
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+type CategoryKey = "INTERIOR" | "OCEANVIEW" | "BALCONY";
+
+type Layout = {
+  doubles: number;
+  triples: number;
+  quads: number;
+  cabins: number;
+  seats?: number;
+  totalCents?: number;
+  totalLabel?: string;
+  recommended?: boolean;
+};
+
+type CategoryOption = {
+  key: CategoryKey;
+  label: string;
+  fromCents: number;
+  fromLabel: string; // "MXN 28,800 pp (double)"
+  hasStaff: boolean;
+  hasArtist: boolean;
+  hasEb: boolean;
+  disabledReason: string | null;
+  layouts: Layout[]; // already ranked, max 3
+};
+
+type OptionsResponse = {
+  ok: true;
+  groupSize: number;
+  adults: number;
+  categories: CategoryOption[];
+};
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+function layoutReadable(l: Layout) {
+  const parts: string[] = [];
+  if (l.quads)   parts.push(`${l.quads} quad${l.quads===1?"":"s"}`);
+  if (l.triples) parts.push(`${l.triples} triple${l.triples===1?"":"s"}`);
+  if (l.doubles) parts.push(`${l.doubles} double${l.doubles===1?"":"s"}`);
+  const roomWord = l.cabins === 1 ? "stateroom" : "staterooms";
+  return `${l.cabins} ${roomWord} · ${parts.join(" + ")}`;
+}
+
+function fmtTotalLabel(lbl?: string) {
+  if (!lbl) return "";
+  return `Estimated total: ${lbl}`;
+}
+
+export default function CabinsPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [data, setData] = useState<OptionsResponse | null>(null);
+
+  const [selectedCategory, setSelectedCategory] = useState<CategoryKey | null>(null);
+  const [selectedLayoutIdx, setSelectedLayoutIdx] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Load options from server (requires ccc_ref cookie)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/booking/cabins/options", { cache: "no-store" });
+        if (!res.ok) {
+          if (res.status === 401) { router.replace("/booking/start"); return; }
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j?.error || "Failed to load options");
+        }
+        const j = await res.json() as OptionsResponse;
+        if (!alive) return;
+        setData(j);
+        setLoading(false);
+        // Preselect first enabled category (preserves old UX)
+        const firstEnabled = j.categories.find(c => !c.disabledReason);
+        if (firstEnabled) setSelectedCategory(firstEnabled.key);
+      } catch (e:any) {
+        if (!alive) return;
+        setErr(e?.message || "Failed to load");
+        setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [router]);
+
+  // Global promo presence among travelers (for chip visibility)
+  const hasAnyArtist = useMemo(() => data?.categories?.some(c => c.hasArtist) ?? false, [data]);
+  const hasAnyEb     = useMemo(() => data?.categories?.some(c => c.hasEb) ?? false, [data]);
+  const hasAnyStaff  = useMemo(() => data?.categories?.some(c => c.hasStaff) ?? false, [data]);
+
+  const selectedCategoryObj = useMemo(
+    () => data?.categories.find(c => c.key === selectedCategory) || null,
+    [data, selectedCategory]
+  );
+
+  // Reset layout selection when category changes
+  useEffect(() => {
+    setSelectedLayoutIdx(null);
+  }, [selectedCategory]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedCategoryObj || selectedLayoutIdx == null) return;
+    const chosen = selectedCategoryObj.layouts[selectedLayoutIdx];
+    if (!chosen) return;
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/booking/cabins/select", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: selectedCategoryObj.key,
+          layout: {
+            doubles: chosen.doubles,
+            triples: chosen.triples,
+            quads: chosen.quads,
+            cabins: chosen.cabins,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || "Failed to save selection");
+      }
+
+      // Mirror to localStorage for the existing assignment editor
+      try {
+        const draft = JSON.parse(localStorage.getItem("ccc-draft") || "{}");
+        const next = { ...draft, cabins: { category: selectedCategoryObj.key, layout: chosen } };
+        localStorage.setItem("ccc-draft", JSON.stringify(next));
+      } catch {}
+
+      router.push("/booking/cabins/assign");
+    } catch (e:any) {
+      setErr(e?.message || "Failed to save");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-xl sm:max-w-2xl rounded-2xl border bg-white p-6 text-center text-neutral-500">
+        Loading cabin options …
+      </div>
+    );
+  }
+  if (err) {
+    return (
+      <div className="mx-auto max-w-xl sm:max-w-2xl space-y-6">
+        <header className="text-center space-y-3">
+          <h1 className="text-2xl md:text-3xl font-semibold">Choose your cabin category</h1>
+          <p className="text-neutral-700">We’ll show you layouts that fit your group.</p>
+        </header>
+        <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
+          {err}
+        </div>
+        <div className="flex items-center justify-between">
+          <a href="/booking/travelers" className="btn btn-ghost">Back</a>
+          <button className="btn btn-primary" onClick={()=>location.reload()}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="mx-auto max-w-xl sm:max-w-2xl space-y-8">
+      {/* Header */}
+      <header className="text-center space-y-3">
+        <h1 className="text-2xl md:text-3xl font-semibold">Choose your cabin category</h1>
+        <p className="text-neutral-700">
+          We’ll only show layouts that make sense for your group size.
+        </p>
+        <p className="text-neutral-600 text-sm">
+          If you have a promo code, your price will be adjusted automatically and shown on the Review step.
+        </p>
+        {hasAnyStaff && (
+          <p className="text-neutral-600 text-sm">
+            Staff upgrades will be calculated automatically.
+          </p>
+        )}
+      </header>
+
+      {/* Categories */}
+      <div className="space-y-4">
+        {data?.categories.map((cat) => {
+          const isActive = selectedCategory === cat.key;
+          const disabled = !!cat.disabledReason;
+
+          // Which promo chips to show (only if travelers have that type)
+          const showArtist = hasAnyArtist;
+          const showEb     = hasAnyEb;
+
+          return (
+            <div
+              key={cat.key}
+              className={classNames(
+                "rounded-2xl border bg-white p-5",
+                isActive ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200 hover:border-neutral-300",
+                disabled && "opacity-60"
+              )}
+            >
+              <div
+                className={classNames(
+                  "flex items-start justify-between gap-4",
+                  disabled && "pointer-events-none"
+                )}
+              >
+                <div className="space-y-1">
+                  <label className="inline-flex items-center gap-3 cursor-pointer select-none">
+                    <input
+                      type="radio"
+                      name="category"
+                      className="h-4 w-4 rounded border-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      checked={isActive}
+                      onChange={() => setSelectedCategory(cat.key)}
+                      disabled={disabled}
+                    />
+                    <span className="text-lg font-medium">{cat.label}</span>
+                  </label>
+                  <div className="text-sm text-neutral-700">
+                    From {cat.fromLabel}
+                  </div>
+                  <div className="text-xs text-neutral-600">
+                    If you have a promo code, your price will be adjusted automatically and shown on the Review step.
+                  </div>
+                  {hasAnyStaff && (
+                    <div className="text-xs text-neutral-600">
+                      Staff upgrades will be calculated automatically.
+                    </div>
+                  )}
+                </div>
+
+                {/* Chips (only for promos present among travelers) */}
+                <div className="flex flex-wrap gap-2">
+                  {showEb && (
+                    <div className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-neutral-50">
+                      Early Bird: {/* per your spec this is presence-only, no count here */}
+                      available
+                    </div>
+                  )}
+                  {showArtist && (
+                    <div className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-neutral-50">
+                      Artist: available
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Category disabled reason */}
+              {disabled && (
+                <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                  Not available with your promo codes right now.
+                </div>
+              )}
+
+              {/* Layouts (only for selected category) */}
+              {isActive && !disabled && (
+                <div className="mt-5 space-y-3">
+                  {cat.layouts.length === 0 && (
+                    <div className="rounded-xl border bg-neutral-50 p-4 text-sm">
+                      We couldn’t find a feasible layout. Try another category.
+                    </div>
+                  )}
+
+                  {cat.layouts.map((l, i) => {
+                    const activeLayout = selectedLayoutIdx === i;
+                    return (
+                      <label
+                        key={i}
+                        className={classNames(
+                          "block rounded-2xl border p-4 bg-white cursor-pointer",
+                          activeLayout ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200 hover:border-neutral-300"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name="layout"
+                                className="h-4 w-4 mt-0.5 rounded border-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                                checked={activeLayout}
+                                onChange={() => setSelectedLayoutIdx(i)}
+                              />
+                              <div className="font-medium">{layoutReadable(l)}</div>
+                              {l.recommended && (
+                                <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-green-50 text-green-700 border-green-200">
+                                  Recommended
+                                </span>
+                              )}
+                            </div>
+                            {l.totalLabel && (
+                              <div className="text-sm text-neutral-700">{fmtTotalLabel(l.totalLabel)}</div>
+                            )}
+                            <div className="text-xs text-neutral-600">
+                              You can adjust assignments on the next step.
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center justify-between">
+        <a href="/booking/travelers" className="btn btn-ghost">Back</a>
+        <button
+          type="submit"
+          className="btn btn-primary disabled:opacity-60"
+          disabled={!selectedCategoryObj || selectedLayoutIdx == null || submitting}
+        >
+          {submitting ? "Saving…" : "Continue"}
+        </button>
+      </div>
+    </form>
+  );
+}

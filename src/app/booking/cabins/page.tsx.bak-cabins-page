@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getEbRemaining, getArtistRemaining } from "../../../lib/config/caps";
 
 type Category = "INTERIOR" | "OCEAN" | "BALCONY";
 type Layout = { doubles: number; triples: number; quads: number; cabins: number };
@@ -73,6 +74,26 @@ function layoutLabel(c: Combo): string {
   if (c.triples) parts.push(`${c.triples}× triple`);
   if (c.doubles) parts.push(`${c.doubles}× double`);
   return parts.join(" · ");
+}
+
+
+function RoleChips({ category }: { category: "INTERIOR"|"OCEAN"|"BALCONY" }) {
+  try {
+    const eb = getEbRemaining(category);
+    const ar = getArtistRemaining(category);
+    return (
+      <div className="mt-3 flex items-center gap-2">
+        <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-neutral-50 text-neutral-700 border-neutral-200">
+          EB: {eb} left
+        </span>
+        <span className="inline-flex items-center rounded-xl px-2.5 py-1 border text-xs bg-neutral-50 text-neutral-700 border-neutral-200">
+          Artist: {ar} left
+        </span>
+      </div>
+    );
+  } catch {
+    return null as any;
+  }
 }
 
 export default function Page() {
@@ -186,6 +207,7 @@ export default function Page() {
           Prices are per person. Final pricing and availability are confirmed on the review step.
         </p>
       </header>
+{chosen && <RoleChips category={chosen as Category} />}
 
       {isLoading ? (
         <div className="rounded-2xl border p-6 bg-white text-sm text-neutral-500 text-center">
@@ -296,5 +318,7 @@ export default function Page() {
     </form>
   );
 }
+
+
 
 

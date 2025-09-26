@@ -1,4 +1,18 @@
-"use client";
+const fs = require("fs");
+const path = require("path");
+
+function backupWrite(file, content, tag){
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const bak = file + ".bak-" + tag;
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+const FILE = path.join("src","app","booking","cabins","page.tsx");
+
+const content = `\"use client\";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -17,9 +31,9 @@ type ApiLayout = {
 
 type ApiCategory = {
   key: CategoryKey;
-  label: string;              // "Interior" | "Ocean View" | "Balcony"
+  label: string;              // \"Interior\" | \"Ocean View\" | \"Balcony\"
   fromCents: number;
-  fromLabel: string;          // e.g., "MXN 28,800 pp (double)"
+  fromLabel: string;          // e.g., \"MXN 28,800 pp (double)\"
   hasStaff: boolean;
   hasArtist: boolean;
   hasEb: boolean;
@@ -36,9 +50,9 @@ type ApiResponse = {
 
 function layoutName(l: ApiLayout) {
   const parts: string[] = [];
-  if (l.quads) parts.push(`${l.quads}× quad`);
-  if (l.triples) parts.push(`${l.triples}× triple`);
-  if (l.doubles) parts.push(`${l.doubles}× double`);
+  if (l.quads) parts.push(\`\${l.quads}× quad\`);
+  if (l.triples) parts.push(\`\${l.triples}× triple\`);
+  if (l.doubles) parts.push(\`\${l.doubles}× double\`);
   return parts.join(" · ");
 }
 
@@ -155,11 +169,11 @@ export default function CabinsPage() {
           return (
             <label
               key={cat.key}
-              className={`
+              className={\`
                 block rounded-2xl border p-5 bg-white hover:border-neutral-300
-                ${active ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200"}
-                ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
-              `}
+                \${active ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200"}
+                \${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}
+              \`}
             >
               <div className="flex items-start gap-3">
                 <input
@@ -192,7 +206,7 @@ export default function CabinsPage() {
       {/* Section 2: layouts for the selected category (separate block) */}
       <section className="rounded-2xl border bg-white p-6">
         <div className="text-lg font-medium mb-2">
-          {currentCategory ? `Available layouts for ${currentCategory.label}` : "Available layouts"}
+          {currentCategory ? \`Available layouts for \${currentCategory.label}\` : "Available layouts"}
         </div>
 
         {!currentCategory && (
@@ -215,15 +229,15 @@ export default function CabinsPage() {
               <div className="space-y-3">
                 {currentCategory.layouts.map((L, idx) => {
                   const selected = selectedLayoutIdx === idx;
-                  const roomsText = L.cabins === 1 ? "1 stateroom" : `${L.cabins} staterooms`;
+                  const roomsText = L.cabins === 1 ? "1 stateroom" : \`\${L.cabins} staterooms\`;
                   return (
                     <label
                       key={idx}
-                      className={`
+                      className={\`
                         block rounded-2xl border p-4
-                        ${selected ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200"}
+                        \${selected ? "border-blue-600 ring-2 ring-blue-100" : "border-neutral-200"}
                         cursor-pointer
-                      `}
+                      \`}
                     >
                       <div className="flex items-start gap-3">
                         <input
@@ -272,3 +286,6 @@ export default function CabinsPage() {
     </form>
   );
 }
+`;
+
+backupWrite(FILE, content, "cabins-two-sections");
