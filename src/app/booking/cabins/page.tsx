@@ -180,6 +180,7 @@ export default function Page() {
                   <div className="space-y-1">
                     <div className="text-lg font-medium">{cat.label}</div>
                     <div className="text-sm text-neutral-600">From <span className="font-medium">{cat.fromLabel}</span></div>
+<div className="text-xs text-neutral-500">If you have a promo code, your price may be lower and will be shown on the Review step.</div>
                   </div>
 
                   {/* Promo chips (right) — only show chips for promo types present */}
