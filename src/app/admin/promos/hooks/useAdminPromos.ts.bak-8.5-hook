@@ -127,6 +127,8 @@ export function useAdminPromos() {
   // Fetch list with AbortController
   const abortRef = useRef<AbortController | null>(null);
   const fetchList = useCallback(async () => {
+// wait for token before hitting protected API
+    if (!token) return;
 abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;

@@ -61,8 +61,25 @@ function AdminPromosApp() {
   const toggleStatus = async (id: string|number, to: "active"|"disabled") => {
     const res = await model.toggleStatus(id, to);
     if (res.ok) {
-      toast.success(to === "active" ? "Code activated" : "Code archived");
-      model.fetchList();
+      const target = (to === "active" ? "active" : "archived");
+      toast.success(target === "active" ? "Code activated" : "Code archived");
+      try { await model.fetchList(); } catch {}
+
+      // If the drawer is open for this id, update status + reload usage in place.
+      setOpenRow((prev) => {
+        if (!prev) return prev;
+        if (String(prev.id) !== String(id)) return prev;
+        return { ...prev, status: target as any };
+      });
+
+      if (openId && String(openId) === String(id)) {
+        try {
+          setUsageLoading(true);
+          const { ok, items } = await model.loadUsage(id);
+          setUsage(ok ? items : []);
+        } catch { /* noop */ }
+        finally { setUsageLoading(false); }
+      }
     } else {
       toast.error("Update failed");
     }

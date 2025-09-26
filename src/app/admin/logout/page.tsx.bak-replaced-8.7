@@ -1,0 +1,8 @@
+import { redirect } from "next/navigation";
+import { clearAdminSession } from "@/lib/adminSession";
+
+// Server Component: on GET, clear cookie and bounce to password gate
+export default async function AdminLogoutPage() {
+  clearAdminSession();
+  redirect("/admin/password");
+}
