@@ -147,9 +147,9 @@ export async function GET(req: NextRequest) {
     }
 
     function publicTotalCents(category: CategoryKey, layout: Layout) {
-      return (layout.doubles * 2) * pp(category,"DOUBLE")
-           + (layout.triples * 3) * pp(category,"TRIPLE")
-           + (layout.quads * 4) * pp(category,"QUADRUPLE");
+      return layout.doubles * pp(category,"DOUBLE")
+           + layout.triples * pp(category,"TRIPLE")
+           + layout.quads   * pp(category,"QUADRUPLE");
     }
 
     // Check if a layout can fit given remaining ship capacity for that category
