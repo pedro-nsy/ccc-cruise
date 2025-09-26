@@ -1,4 +1,18 @@
-"use client";
+const fs = require("fs");
+const path = require("path");
+
+function backupWrite(file, content, tag){
+  const dir = path.dirname(file);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const bak = file + ".bak-" + tag;
+  if (fs.existsSync(file) && !fs.existsSync(bak)) fs.copyFileSync(file, bak);
+  fs.writeFileSync(file, content, "utf8");
+  console.log("✓ wrote", file, "backup:", fs.existsSync(bak) ? bak : "(none)");
+}
+
+/* --- A) /admin/login -> read ?next=... and use it for emailRedirectTo --- */
+const loginFile = path.join("src","app","admin","login","page.tsx");
+const loginContent = `\"use client\";
 import { useState, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useSearchParams } from "next/navigation";
@@ -64,3 +78,47 @@ export default function AdminLoginPage() {
     </main>
   );
 }
+`;
+
+/* --- B) /admin layout -> client guard that redirects to /admin/login?next=... when signed-out --- */
+const layoutFile = path.join("src","app","admin","layout.tsx");
+const layoutContent = `\"use client\";
+import { ReactNode, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+export default function AdminLayout({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!on) return;
+      const hasSession = !!data.session;
+      if (!hasSession) {
+        const next = pathname + (sp && sp.toString() ? \`?\${sp.toString()}\` : "");
+        router.replace(\`/admin/login?next=\${encodeURIComponent(next)}\`);
+      } else {
+        setReady(true);
+      }
+    })();
+    return () => { on = false; };
+  }, [pathname, sp, router]);
+
+  if (!ready) return null; // or a small spinner if you prefer
+
+  return <>{children}</>;
+}
+`;
+
+backupWrite(loginFile, loginContent, "magiclink-next");
+backupWrite(layoutFile, layoutContent, "magiclink-next");
