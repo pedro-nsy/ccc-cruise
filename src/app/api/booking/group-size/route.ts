@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 
 type Payload = { adults: number; minors: number; minorAges: number[] };
@@ -21,6 +21,31 @@ function validate(p: Payload) {
     }
   }
   return errors;
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const ref = req.cookies.get("ccc_ref")?.value || "";
+    if (!ref) return NextResponse.json({ ok:false, error:"No ref" }, { status: 401 });
+
+    const supabase = supabaseServer();
+    const { data, error } = await supabase
+      .from("leads")
+      .select("adults, minors, minor_ages")
+      .eq("booking_ref", ref)
+      .maybeSingle();
+
+    if (error) return NextResponse.json({ ok:false, error: error.message }, { status: 500 });
+    if (!data) return NextResponse.json({ ok:false, error:"Lead not found" }, { status: 404 });
+
+    const adults = Number.isInteger(data.adults) ? data.adults : null;
+    const minors = Number.isInteger(data.minors) ? data.minors : null;
+    const minorAges = Array.isArray(data.minor_ages) ? data.minor_ages : [];
+
+    return NextResponse.json({ ok:true, adults, minors, minorAges }, { status: 200 });
+  } catch (err:any) {
+    return NextResponse.json({ ok:false, error: err?.message || "Server error" }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {

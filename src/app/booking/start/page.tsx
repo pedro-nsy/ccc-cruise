@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type StartForm = {
   firstName: string;
@@ -85,6 +85,28 @@ export default function Page() {
       router.push("/booking/group-size");
     }
   }
+
+  // Prefill saved lead so Back → Start restores inputs
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/booking/start", { method: "GET" });
+        if (!alive) return;
+        if (!r.ok) return; // 401/404 → do nothing
+        const d = await r.json().catch(() => null);
+        if (!d || !d.ok) return;
+        setForm({
+          firstName: (d.firstName || "").toString(),
+          lastName:  (d.lastName  || "").toString(),
+          email:     (d.email     || "").toString(),
+          phone:     (d.phone     || "").toString(),
+          whatsappOk: !!d.whatsappOk,
+        });
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, []);
 
   return (
     <form onSubmit={submit} className="mx-auto max-w-xl sm:max-w-2xl space-y-8">

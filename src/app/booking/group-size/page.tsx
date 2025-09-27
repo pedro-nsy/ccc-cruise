@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, startTransition } from "react";
@@ -11,6 +11,7 @@ export default function Page() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<boolean>(false);
 
+  // Guard: ensure we have a ref cookie or bounce back to Start
   useEffect(() => {
     let alive = true;
     fetch("/api/booking/has-ref")
@@ -19,6 +20,25 @@ export default function Page() {
     return () => { alive = false; };
   }, [router]);
 
+  // PREFILL: load saved adults/minors/minorAges so Back → Group Size keeps values
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/booking/group-size", { method: "GET" });
+        if (!alive) return;
+        if (!r.ok) return; // silent on 401/404
+        const d = await r.json().catch(() => null);
+        if (!d || !d.ok) return;
+        if (Number.isInteger(d.adults)) setAdults(d.adults);
+        if (Number.isInteger(d.minors)) setMinors(d.minors);
+        if (Array.isArray(d.minorAges)) setMinorAges(d.minorAges);
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Keep minorAges array length in sync with minors count
   useEffect(() => {
     setMinorAges((prev) => {
       const next = prev.slice(0, minors);
@@ -60,10 +80,6 @@ export default function Page() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ adults, minors, minorAges }),
       });
-
-      // Dev breadcrumb
-      console.log("group-size → POST status", res.status);
-
       if (res.status === 400) {
         const data = await res.json().catch(() => ({} as any));
         if (data?.error === "MISSING_REF") return router.replace("/booking/start");
@@ -72,7 +88,6 @@ export default function Page() {
       }
       if (!res.ok) return;
 
-      // Robust navigation: client push + fallback hard redirect
       startTransition(() => router.push("/booking/travelers"));
       setTimeout(() => {
         if (typeof window !== "undefined" && window.location.pathname.includes("/booking/group-size")) {
@@ -167,7 +182,7 @@ export default function Page() {
       <div className="flex items-center justify-between">
         <a href="/booking/start" className="btn btn-ghost">Back</a>
         <button type="submit" disabled={loading} className="btn btn-primary disabled:opacity-60">
-          {loading ? "Saving…" : "Continue"}
+          Continue
         </button>
       </div>
     </form>
