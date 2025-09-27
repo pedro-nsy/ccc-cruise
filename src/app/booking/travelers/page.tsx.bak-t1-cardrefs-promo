@@ -46,10 +46,8 @@ export default function TravelersPage() {
   // Promo UI state
   const [promoInputs, setPromoInputs] = useState<Record<number, string>>({});
   const [promoMsgs, setPromoMsgs] = useState<Record<number, string>>({});
-  const [wantsPromo, setWantsPromo] = useState<Record<number, boolean>>({}); 
-  // Refs: map traveler idx -> card element for scroll/focus on errors
-  const cardRefs = useRef<Record<number, HTMLDivElement | null>>({});
-// checkbox per traveler
+  const [wantsPromo, setWantsPromo] = useState<Record<number, boolean>>({}); // checkbox per traveler
+
 
   // Guard + load
   useEffect(() => {
@@ -158,28 +156,9 @@ export default function TravelersPage() {
     const v = validate();
     setErrors(v);
 
-    // Promo gating per traveler: if "Apply a promo code" is checked…
-    for (const t of travelers) {
-      const idx = t.idx;
-      if (wantsPromo[idx]) {
-        const typed = (promoInputs[idx] || "").trim();
-        // empty input → block submit
-        if (!typed) {
-          v[idx] = v[idx] || "Enter a promo code (or uncheck the box).";
-        } else {
-          const typedUpper = typed.toUpperCase();
-          // typed but not validated to attach onto traveler → block submit
-          if (!t.promo || t.promo.code !== typedUpper) {
-            v[idx] = v[idx] || "Validate this code before continuing.";
-          }
-        }
-      }
-    }
-    setErrors(v);
-
     if (Object.keys(v).length) {
       setSaved("fail");
-      // Scroll to first offender & focus first input/select in that card
+      // Scroll to first offender & focus its first input/select
       const keys = Object.keys(v).map(Number).filter(n => !Number.isNaN(n));
       if (keys.length) {
         const firstIdx = Math.min(...keys);
@@ -187,8 +166,8 @@ export default function TravelersPage() {
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "start" });
           setTimeout(() => {
-            const input = el.querySelector("input, select");
-            if (input && input instanceof HTMLElement) input.focus();
+            const input = el.querySelector("input, select") as HTMLElement | null;
+            input?.focus();
           }, 250);
         }
       }
@@ -211,18 +190,9 @@ export default function TravelersPage() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) { setSaved("fail"); return; }
-
-// Navigate to Cabins on successful save
-try {
-  const { startTransition } = await import("react");
-  startTransition(() => router.push("/booking/cabins"));
-  // Fallback in case transition is ignored
-  setTimeout(() => {
-    if (typeof window !== "undefined" && window.location.pathname.includes("/booking/travelers")) {
-      window.location.assign("/booking/cabins");
-    }
-  }, 200);
-} catch {}
+      setSaved("ok");
+      // Navigate to Cabins on successful save
+      try { const { startTransition } = await import("react"); startTransition(() => router.push("/booking/cabins")); setTimeout(() => { if (typeof window!=="undefined" && window.location.pathname.includes("/booking/travelers")) window.location.assign("/booking/cabins"); }, 200); } catch {}
     } finally {
       setSaving(false);
       setTimeout(() => setSaved(null), 3000);
@@ -282,6 +252,9 @@ try {
         <p className="text-neutral-600 text-sm">Adults must be 18+ by Apr 5, 2026; minors must be 0–17 by Apr 12, 2026.</p>
       </header>
 
+      {saved === "ok" && (
+        <div className="rounded-xl border bg-neutral-50 p-4 text-sm">Saved.</div>
+      )}
       {saved === "fail" && (
         <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
           Please fix the fields highlighted below and try again.
@@ -295,7 +268,10 @@ try {
           const checked = !!wantsPromo[t.idx];
 
           return (
-            <div key={t.idx} ref={(node) => { cardRefs.current[t.idx] = node; }} className="rounded-2xl border border-neutral-200 bg-white p-6 space-y-5">
+            <div
+                key={t.idx}
+                ref={(node) => { cardRefs.current[t.idx] = node; }}
+                className="rounded-2xl border border-neutral-200 bg-white p-6 space-y-5">
               <div className="flex items-center justify-between">
                 <div className="text-lg font-medium">
                   Traveler {t.idx + 1} {t.is_adult ? "(Adult)" : `(Minor${typeof t.minor_age === "number" ? `, age ${t.minor_age}` : ""})`}
@@ -412,9 +388,12 @@ try {
           );
         })}
       </div>
-
+      {/* Bottom banners (duplicate of top status) */}
+      {saved === "ok" && (
+        <div className="rounded-xl border bg-neutral-50 p-4 text-sm">Saved.</div>
+      )}
       {saved === "fail" && (
-        <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 mt-2">
+        <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
           Please fix the fields highlighted above and try again.
         </div>
       )}

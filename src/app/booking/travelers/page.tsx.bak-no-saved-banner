@@ -211,7 +211,7 @@ export default function TravelersPage() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) { setSaved("fail"); return; }
-
+      setSaved("ok");
 // Navigate to Cabins on successful save
 try {
   const { startTransition } = await import("react");
@@ -282,6 +282,9 @@ try {
         <p className="text-neutral-600 text-sm">Adults must be 18+ by Apr 5, 2026; minors must be 0–17 by Apr 12, 2026.</p>
       </header>
 
+      {saved === "ok" && (
+        <div className="rounded-xl border bg-neutral-50 p-4 text-sm">Saved.</div>
+      )}
       {saved === "fail" && (
         <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
           Please fix the fields highlighted below and try again.
@@ -413,6 +416,10 @@ try {
         })}
       </div>
 
+      {/* Bottom banners (duplicate of top status) */}
+      {saved === "ok" && (
+        <div className="rounded-xl border bg-neutral-50 p-4 text-sm mt-2">Saved.</div>
+      )}
       {saved === "fail" && (
         <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700 mt-2">
           Please fix the fields highlighted above and try again.
