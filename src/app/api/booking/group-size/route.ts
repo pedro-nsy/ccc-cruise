@@ -77,7 +77,43 @@ export async function POST(req: NextRequest) {
       .eq("booking_ref", ref);
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true }, { status: 200 });
+    
+// --- FLOW-03 T2: shrink travelers + release reserved promos on trim ---
+{
+  const M = p.adults + p.minors;
+
+  // Fetch travelers to trim (idx >= M) for this booking
+  const { data: toTrim, error: trimFetchErr } = await supabase
+    .from("travelers")
+    .select("id, idx, promo_code_id")
+    .eq("booking_ref", ref)
+    .gte("idx", M);
+
+  if (!trimFetchErr && Array.isArray(toTrim) && toTrim.length > 0) {
+    // Collect promo_code_ids from trimmed travelers (dedup), only where present
+    const promoIds = Array.from(new Set(toTrim
+      .map(t => t.promo_code_id)
+      .filter(v => v !== null && v !== undefined)));
+
+    // Release any still-reserved usages tied to this booking for those codes
+    if (promoIds.length > 0) {
+      await supabase
+        .from("promo_usages")
+        .update({ status: "released", released_at: new Date().toISOString() })
+        .in("promo_code_id", promoIds)
+        .eq("booking_ref", ref)
+        .eq("status", "reserved");
+    }
+
+    // Delete the trimmed traveler rows
+    await supabase
+      .from("travelers")
+      .delete()
+      .in("id", toTrim.map(t => t.id));
+  }
+}
+// --- end T2 block ---
+return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err?.message || "Server error" }, { status: 500 });
   }
